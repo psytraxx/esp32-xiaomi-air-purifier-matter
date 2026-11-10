@@ -5,6 +5,7 @@ Entries are grouped by date, newest first.
 ## 2026-11-10
 
 ### Added
+- Hardware facts from the first 3H backup are recorded (dump/README.md): the Wi-Fi module is single-core with 4 MB of flash, and its built-in network address has a broken checksum. The firmware's settings already assumed all three, so nothing had to change.
 - A fault reported by the purifier (such as a stuck fan or a broken sensor) now shows up in Matter as a hardware fault. In Home Assistant it appears as the "Hardware faults" problem sensor, which has to be enabled once on the device page.
 - The firmware now also runs the Mi Air Purifier 3C. The same image works in either purifier: it recognises which one it is in, remembers it, and offers the matching features (the 3C has no temperature or humidity sensor). On the 3C, low, medium and high are set fan speeds, and its air-quality level is worked out from the PM2.5 reading. Not yet tried on a real 3C.
 - The purifier simulator can play a 3C as well, and can stay quiet about its model to test the automatic recognition.
@@ -21,6 +22,8 @@ Entries are grouped by date, newest first.
 - The README now records the build setup, which matches the plant monitor project (ESP-IDF 6.1 and Espressif's Matter SDK), and how this purifier differs from it: Wi-Fi instead of Thread, always on instead of sleeping, and a few quirks of Xiaomi's Wi-Fi module.
 
 ### Changed
+- The backup guide now keeps the chip in flashing mode between commands, recommends a separate 3.3 V power supply, and covers the two connection problems met during the first backup.
+- Flashing now starts by erasing the whole chip, so none of Xiaomi's Wi-Fi settings or device identity stay behind in the module's memory.
 - Power, modes, fan speed and sleep mode will all be controlled through Matter's standard fan controls, rather than a separate on/off switch. Child lock, beeper and display brightness won't be exposed and stay controllable on the purifier itself.
 - The README's diagrams are now drawn with Mermaid, so GitHub renders them as real diagrams.
 - The README now makes clear that this firmware is written from scratch on ESP-IDF and doesn't use ESPHome. The ESPHome projects are credited only as prior research into the hardware, and setting IDs now point to Xiaomi's own published spec.

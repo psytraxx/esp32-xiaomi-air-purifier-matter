@@ -202,9 +202,10 @@ one model must not renumber the other model's.
 
 - **UART**: UART0 (GPIO1/3) is the flash/console header; the MCU link is
   **UART2 on GPIO17 (TX) / GPIO16 (RX)** — `board_pins.h`.
-- **`CONFIG_FREERTOS_UNICORE=y`** until Phase 0 proves the module is dual-core.
-- **`CONFIG_ESP_MAC_IGNORE_MAC_CRC_ERROR=y`**: Xiaomi's custom MAC eFuse is
-  reported to fail its CRC; without this the MAC read fails at boot.
+- **`CONFIG_FREERTOS_UNICORE=y`**: the module is single-core (confirmed on a
+  3H, see [dump/README.md](dump/README.md)).
+- **`CONFIG_ESP_MAC_IGNORE_MAC_CRC_ERROR=y`**: the MAC eFuse checksum is
+  invalid (confirmed on a 3H); without this the MAC read fails at boot.
 - **No power management / light sleep** — mains powered; don't add PM locks.
 - **Partition table**: [partitions_4mb.csv](partitions_4mb.csv), single factory
   app (D3, OTA, is open). `nvs` holds Wi-Fi, Matter fabrics and boot_diag.
@@ -212,11 +213,17 @@ one model must not renumber the other model's.
   `chip_project_config.h`. Change passcode and verifier together
   (`python3 tools/spake2p_verifier.py <passcode>`).
 - **Never commit stock flash dumps** (`stock_*` is git-ignored): they contain
-  device keys and Wi-Fi credentials.
+  device keys and Wi-Fi credentials. `dump/README.md` records what the 3H's
+  dump showed (stock partition table, chip facts); only that file is
+  committed.
+- **esptool and bootloader mode**: each esptool command resets the chip out
+  of the ROM bootloader unless given `--after no-reset`; the README's commands
+  pass it.
 
 ## Still To Verify On Hardware (Phase 0)
 
-Single/dual core and flash size; whether the MAC CRC really fails; UART pins;
+Confirmed on a 3H (`dump/README.md`): single core, 4 MB flash, invalid MAC
+eFuse CRC, no flash encryption or secure boot. Still open: UART pins;
 the heartbeat (13.9 on the 3H, 9.4 on the 3C, = 60 every 60 s); the
 filter-reset action arguments (`4.1` with `3 0`); what favorite level 0 means
 (3H); the 10 % filter-warning threshold; whether the MCU reports property

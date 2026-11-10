@@ -101,13 +101,16 @@ table in `main/purifier_model.cpp`.
 | Main MCU | **STM32F412** |
 | MCU link | ESP32 `GPIO17` = TX, `GPIO16` = RX, 115200 baud, 8N1 |
 | Flash header | `3.3V`, `GND`, `TX`, `RX`. On the 3H a `GPIO0` / `GND` pin pair sits right above it; **on the 3C GPIO0 isn't on the header** and has to be shorted to GND on the module itself |
-| MAC address | Xiaomi writes its own MAC into eFuse, and the MAC CRC is reported not to validate (to verify) |
-| Cores | Reported as possibly running single-core. Check with `esptool chip-id`. |
-| Flash size | Expected 4 MB. Check with `esptool flash-id`. |
+| MAC address | The MAC eFuse checksum is **invalid** (confirmed on a 3H), so the build ignores it; the MAC itself reads fine |
+| Cores | **Single core** (ESP32 rev 1.0, confirmed on a 3H) |
+| Flash size | **4 MB**, no flash encryption or secure boot (confirmed on a 3H) |
 
-Both purifiers use the same module and MCU link. These values come from
-community reverse engineering (see [Credits](#credits-and-references)); we'll
-confirm every row on our own unit during the backup step.
+Both purifiers use the same module and MCU link. The cores, flash and MAC
+rows are confirmed on a 3H from its stock backup (see
+[dump/README.md](dump/README.md), which also has Xiaomi's stock partition
+table); the pins and serial link come from community reverse engineering (see
+[Credits](#credits-and-references)) and are confirmed once our firmware talks
+to the MCU.
 
 Disassembly is the same as for the other Xiaomi tower purifiers: remove the
 filter, undo the screws inside the filter compartment and at the top, then
@@ -299,11 +302,19 @@ flowchart TD
 
 - A **3.3 V** USB-UART adapter (CP2102, CH340, FT232, …). **Never use 5 V**
   on the header.
+- Ideally a separate **3.3 V supply (≥ 1 A)** for the board, sharing GND with
+  the adapter. The board's 3.3 V rail can drag a weak adapter regulator down
+  far enough to reset the adapter (it drops off USB, or esptool reports
+  `No serial data received`).
 - Four jumper wires, plus one more (or a jumper cap) for `GPIO0`–`GND`.
 - `esptool` and `espefuse`. Both ship with ESP-IDF; alternatively install
   them with `pip install esptool`. The commands below use the esptool v5
   syntax (`read-flash`); older v4 releases spell them with underscores
   (`read_flash`).
+- Every esptool command below passes `--after no-reset`. Without it esptool
+  resets the chip when it finishes, the chip leaves bootloader mode, and the
+  next command fails until you power-cycle with `GPIO0`–`GND` still
+  shorted.
 
 ### 1. Connect and enter the bootloader
 
@@ -322,11 +333,11 @@ flowchart TD
 ### 2. Identify the chip and record the eFuses
 
 ```bash
-esptool --port /dev/ttyUSB0 chip-id
+esptool --port /dev/ttyUSB0 --after no-reset chip-id
 ```
 
 ```bash
-esptool --port /dev/ttyUSB0 flash-id
+esptool --port /dev/ttyUSB0 --after no-reset flash-id
 ```
 
 ```bash
@@ -342,11 +353,11 @@ never touches the eFuses, so they need no backup, just this record.
 ### 3. Dump the full flash, twice
 
 ```bash
-esptool --port /dev/ttyUSB0 --baud 460800 read-flash 0 ALL stock_full_1.bin
+esptool --port /dev/ttyUSB0 --after no-reset --baud 460800 read-flash 0 ALL stock_full_1.bin
 ```
 
 ```bash
-esptool --port /dev/ttyUSB0 --baud 460800 read-flash 0 ALL stock_full_2.bin
+esptool --port /dev/ttyUSB0 --after no-reset --baud 460800 read-flash 0 ALL stock_full_2.bin
 ```
 
 ```bash
@@ -360,7 +371,7 @@ again. A 4 MB dump should be exactly 4,194,304 bytes.
 ### 4. Verify the dump against the chip
 
 ```bash
-esptool --port /dev/ttyUSB0 verify-flash 0 stock_full_1.bin
+esptool --port /dev/ttyUSB0 --after no-reset verify-flash 0 stock_full_1.bin
 ```
 
 ### 5. Optional: inspect the stock partition table
@@ -388,8 +399,16 @@ folder).
 
 ### 7. Flash this firmware
 
-With the module still in bootloader mode, either build and flash it yourself
-(see [Building](#building)):
+First erase the whole flash, with the module still in bootloader mode. Xiaomi
+uses a different layout (see [dump/README.md](dump/README.md)); erasing
+removes its Wi-Fi settings and device identity, which our firmware would
+otherwise leave lying in flash. Only do this once the backup is verified:
+
+```bash
+esptool --port /dev/ttyUSB0 --after no-reset erase-flash
+```
+
+Then either build and flash it yourself (see [Building](#building)):
 
 ```bash
 idf.py -p /dev/ttyUSB0 flash monitor
@@ -400,7 +419,7 @@ latest successful **Firmware** run on GitHub and write the merged image at
 offset 0:
 
 ```bash
-esptool --port /dev/ttyUSB0 --baud 460800 write-flash 0 air_purifier_matter_merged.bin
+esptool --port /dev/ttyUSB0 --after no-reset --baud 460800 write-flash 0 air_purifier_matter_merged.bin
 ```
 
 The pairing code is set per build in `main/chip_project_config.h`. The CI
@@ -418,11 +437,11 @@ it from your Matter controller.
 2. Write the backup back:
 
    ```bash
-   esptool --port /dev/ttyUSB0 --baud 460800 write-flash 0 stock_full_1.bin
+   esptool --port /dev/ttyUSB0 --after no-reset --baud 460800 write-flash 0 stock_full_1.bin
    ```
 
    ```bash
-   esptool --port /dev/ttyUSB0 verify-flash 0 stock_full_1.bin
+   esptool --port /dev/ttyUSB0 --after no-reset verify-flash 0 stock_full_1.bin
    ```
 
 3. Remove the short, power-cycle and reassemble. The module rejoins your
@@ -440,6 +459,8 @@ the controller will show the purifier as unavailable. Remove it there.
 | `Failed to connect to ESP32: No serial data received` | TX/RX swapped, `GPIO0` not shorted *while powering on*, or wrong port. Swap TX/RX, re-short `GPIO0`, replug. |
 | Dumps differ between runs | Unreliable link: lower `--baud`, use shorter wires, try another adapter. |
 | Board resets or browns out (`brownout detector was triggered`) | The adapter's 3.3 V regulator can't supply Wi-Fi current peaks. Fine for flashing; for test runs use an adapter with a stronger 3.3 V rail. |
+| USB adapter disappears when the board's 3.3 V is connected | The board pulls the adapter's regulator down. Power the board from a separate 3.3 V supply (≥ 1 A) with GND shared, and leave the adapter's 3.3 V pin unconnected. |
+| The second esptool command can't connect | esptool reset the chip out of bootloader mode. Use `--after no-reset`, or power-cycle with `GPIO0`–`GND` still shorted. |
 | Our firmware boot-loops or won't commission | Capture the log with `idf.py monitor`, then restore the backup if needed. |
 | Purifier runs but its Wi-Fi LED blinks or shows an error | The MCU isn't getting the expected `net` reply. This is a firmware bug: restore the backup and report it. |
 | Worried the module is bricked | The ESP32's ROM bootloader is in mask ROM and can't be overwritten. As long as `GPIO0` can be pulled low at power-on, the stock backup can always be written back. |

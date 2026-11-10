@@ -20,7 +20,7 @@ Phases 1 and 2 don't need the purifier and run in parallel with Phase 0.
 
 | Phase | State |
 |---|---|
-| 0 Hardware recon | **Open** — needs the purifier |
+| 0 Hardware recon | **Partly done (3H)** — backup taken and verified; single core, 4 MB flash, invalid MAC CRC confirmed ([dump/README.md](../dump/README.md)). Still open: UART capture of the stock firmware, and the 3C |
 | 1 Project skeleton | **Done** — builds in CI ([PR #1](https://github.com/psytraxx/esp32-xiaomi-air-purifier-matter/pull/1)) |
 | 2 MIoT protocol core | **Done** — host-tested; capture-based fixtures follow Phase 0 |
 | 3 UART bridge | **Written** (`purifier_link`, `tools/mcu_sim.py`); devkit and in-purifier tests open |
