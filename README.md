@@ -24,7 +24,7 @@ cloud. No extra hardware or soldering is required.
 - [Software stack](#software-stack)
 - [Backup, flashing and restore](#backup-flashing-and-restore)
 - [Building](#building)
-- [Roadmap](#roadmap)
+- [Roadmap](#roadmap) (details in [docs/PLAN.md](docs/PLAN.md))
 - [Credits and references](#credits-and-references)
 - [Disclaimer](#disclaimer)
 
@@ -148,44 +148,34 @@ relying on it.
 
 ## Matter data model
 
-Property IDs come from Xiaomi's published
-[MIoT spec for `zhimi.airpurifier.mb3`](https://home.miot-spec.com/spec/zhimi.airpurifier.mb3).
+The device is a Matter **Air Purifier** that uses the **Fan Control** cluster
+for power, modes and speed. There's no separate On/Off cluster. The full
+feature → cluster mapping, Fan Control configuration and value conversions are
+in [docs/PLAN.md](docs/PLAN.md#feature--matter-cluster-mapping).
 
 ```mermaid
 flowchart TB
     node["Matter node"]
     node --> ep0["EP 0 · Root Node<br/>Basic Information, Network Commissioning, …"]
-    node --> ep1["EP 1 · Air Purifier (0x002D)<br/>Identify, On/Off, Fan Control,<br/>HEPA Filter Monitoring"]
-    node --> ep2["EP 2 · Air Quality Sensor (0x002C)<br/>Air Quality, PM2.5 Concentration"]
+    node --> ep1["EP 1 · Air Purifier (0x002D)<br/>Identify · Fan Control · HEPA Filter Monitoring"]
+    node --> ep2["EP 2 · Air Quality Sensor (0x002C)<br/>Air Quality · PM2.5 Concentration"]
     node --> ep3["EP 3 · Temperature Sensor (0x0302)"]
     node --> ep4["EP 4 · Humidity Sensor (0x0307)"]
 ```
 
-### Property mapping
+| Purifier feature | Matter |
+|---|---|
+| Power, Auto, manual levels 1–3 | Fan Control `FanMode` Off / Auto / Low / Medium / High |
+| Favorite mode (15 steps) | Fan Control `SpeedSetting` / `PercentSetting` |
+| Sleep mode | Fan Control `WindSetting` = SleepWind |
+| Motor speed | Fan Control `PercentCurrent` / `SpeedCurrent` |
+| Filter life, used time, reset | HEPA Filter Monitoring |
+| AQI level, PM2.5 | Air Quality, PM2.5 Concentration Measurement |
+| Temperature, humidity | Temperature / Relative Humidity Measurement |
 
-| MIoT (siid.piid) | Description | Values | Matter |
-|---|---|---|---|
-| 2.2 | Power | bool | On/Off `OnOff`; Fan Control `FanMode` = Off |
-| 2.5 | Mode | 0 Auto, 1 Sleep, 2 Favorite, 3 Manual | Fan Control `FanMode` Auto / Low (sleep) / … |
-| 2.4 | Manual fan level | 1–3 | Fan Control `FanMode` Low / Medium / High |
-| 10.10 | Favorite level | 0–14 | Fan Control `SpeedSetting` (`SpeedMax` = 14), `PercentSetting` |
-| 10.8 | Motor speed | 300–2300 rpm | Fan Control `SpeedCurrent` / `PercentCurrent` |
-| 3.6 | PM2.5 | µg/m³ | PM2.5 Concentration Measurement `MeasuredValue` |
-| 13.8 | AQI state | 0 Best … 5 Unhealthy | Air Quality `AirQuality` |
-| 3.8 | Temperature | °C (float) | Temperature Measurement (0.01 °C units) |
-| 3.7 | Relative humidity | % | Relative Humidity Measurement (0.01 % units) |
-| 4.3 | Filter life | % | HEPA Filter Monitoring `Condition` |
-| 4.5 | Filter used time | h | HEPA Filter Monitoring `LastChangedTime` (derived) |
-| action 4.1 `3 0` | Reset filter | — | HEPA Filter Monitoring `ResetCondition` command |
-| action 8.1 | Toggle power | — | (physical button equivalent, not exposed) |
-| 2.1 | Fault code | 0 none, 1 M1 run, 2 M1 stuck, 3 no sensor, 4 humidity err, 5 temp err | Logged; no standard cluster |
-| 5.1 | Buzzer | bool | Not exposed (no standard cluster) |
-| 6.1 | Display brightness | 0 High, 1 Low, 2 Off | Not exposed (no standard cluster) |
-| 7.1 | Child lock | bool | Not exposed (no standard cluster) |
-| 15.5 | Filter door open | bool | Logged |
-
-Properties without a standard Matter cluster could later be exposed as
-vendor-specific attributes, but most controllers ignore those.
+Child lock, buzzer and display brightness aren't exposed; they stay
+controllable on the device itself. Property IDs come from Xiaomi's published
+[MIoT spec for `zhimi.airpurifier.mb3`](https://home.miot-spec.com/spec/zhimi.airpurifier.mb3).
 
 ## Software stack
 
@@ -442,16 +432,19 @@ and powered from the UART adapter. See
 
 ## Roadmap
 
+The detailed phase plan, decisions and risks are in [docs/PLAN.md](docs/PLAN.md).
+
+
 - [ ] Back up a unit; confirm chip variant (single/dual core), flash size, eFuse MAC and stock partition table
 - [ ] Capture a stock MCU↔ESP32 UART log (boot, button presses, app commands, heartbeat)
 - [ ] Project skeleton on the plant-monitor stack (ESP-IDF 6.1, esp_matter 1.6, `esp32`, 4 MB single-app partitions, CI, Unity tests, CHANGELOG)
 - [ ] MIoT UART driver: line framing, `get_down` command queue, `result`/`properties_changed` parsing
 - [ ] `net` state reporting tied to Matter/Wi-Fi state (correct LED behaviour)
-- [ ] Air Purifier endpoint: On/Off + Fan Control
+- [ ] Air Purifier endpoint: Identify + Fan Control
 - [ ] HEPA Filter Monitoring incl. reset
 - [ ] Air Quality, PM2.5, temperature, humidity endpoints
 - [ ] Factory reset via button combo / `restore`
-- [ ] Matter OTA updates (only if a dual-slot layout fits in 4 MB)
+- [ ] Matter OTA updates (decision deferred until the binary size is known)
 - [ ] Tested with Apple Home, Google Home and Home Assistant
 
 ## Credits and references

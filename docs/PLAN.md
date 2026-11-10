@@ -1,0 +1,255 @@
+# Implementation plan
+
+How we get from "stock purifier" to "Matter purifier", in phases that each end
+in something verifiable. See the [README](../README.md) for hardware, protocol
+and backup details.
+
+```mermaid
+flowchart LR
+    P0["0 · Hardware recon<br/><i>needs purifier</i>"] --> P3
+    P1["1 · Skeleton + CI"] --> P2["2 · MIoT protocol core<br/><i>host-tested</i>"]
+    P2 --> P3["3 · UART bridge<br/>devkit, then purifier"]
+    P3 --> P4["4 · Matter endpoints"]
+    P4 --> P5["5 · Robustness"]
+    P5 --> P6["6 · Validation + release"]
+```
+
+Phases 1 and 2 don't need the purifier and run in parallel with Phase 0.
+
+## Decisions
+
+| # | Topic | Decision |
+|---|---|---|
+| D1 | Fan / mode control | **Matter Fan Control cluster** for everything fan-related: power, Auto, Low/Med/High, fine speed, Sleep. No separate On/Off cluster, so there's a single source of truth for power. Mapping below. |
+| D2 | Child lock, buzzer, display brightness | **Not exposed.** They stay controllable on the device itself. |
+| D3 | Matter OTA updates | **Decide later**, once Phase 1 gives the binary size. Phase 1 starts with a single-app 4 MB layout. |
+| D4 | Pairing code | **Per build, like the plant monitor**: discriminator, passcode and SPAKE2+ verifier in `main/chip_project_config.h`, generated with `tools/spake2p_verifier.py`. |
+| D5 | License | Open |
+
+## Feature → Matter cluster mapping
+
+### Endpoints
+
+```mermaid
+flowchart TB
+    node["Matter node"]
+    node --> ep0["EP 0 · Root Node<br/>Basic Information, General Commissioning,<br/>Network Commissioning (Wi-Fi), …"]
+    node --> ep1["EP 1 · Air Purifier (0x002D)<br/>Identify · Fan Control · HEPA Filter Monitoring"]
+    node --> ep2["EP 2 · Air Quality Sensor (0x002C)<br/>Air Quality · PM2.5 Concentration Measurement"]
+    node --> ep3["EP 3 · Temperature Sensor (0x0302)<br/>Temperature Measurement"]
+    node --> ep4["EP 4 · Humidity Sensor (0x0307)<br/>Relative Humidity Measurement"]
+```
+
+Endpoint IDs are append-only: new endpoints go at the end.
+
+### Purifier features
+
+MIoT IDs are `siid.piid` from the
+[`zhimi.airpurifier.mb3` spec](https://home.miot-spec.com/spec/zhimi.airpurifier.mb3).
+
+| Purifier feature | MIoT | Endpoint | Matter cluster | Attribute / command |
+|---|---|---|---|---|
+| Power on/off | 2.2 | 1 | Fan Control | `FanMode` = Off ↔ power off; any other mode ↔ power on |
+| Auto mode | 2.5 = 0 | 1 | Fan Control | `FanMode` = Auto (feature **AUT**) |
+| Manual level 1 / 2 / 3 | 2.5 = 3, 2.4 = 1/2/3 | 1 | Fan Control | `FanMode` = Low / Medium / High |
+| Favorite mode, 15-step speed | 2.5 = 2, 10.10 = 0–14 | 1 | Fan Control | `SpeedSetting` 1–15 / `PercentSetting` (feature **SPD**, `SpeedMax` = 15) |
+| Sleep mode | 2.5 = 1 | 1 | Fan Control | `WindSetting` = SleepWind (feature **WND**, `WindSupport` = SleepWind) |
+| Actual motor speed | 10.8 (300–2300 rpm) | 1 | Fan Control | `PercentCurrent`, `SpeedCurrent` |
+| Filter life | 4.3 (%) | 1 | HEPA Filter Monitoring | `Condition` (`DegradationDirection` = Down) |
+| Filter needs replacing | from 4.3 | 1 | HEPA Filter Monitoring | `ChangeIndication` OK / Warning / Critical |
+| Filter used time | 4.5 (h) | 1 | HEPA Filter Monitoring | `LastChangedTime` = now − hours used (needs SNTP time) |
+| Reset filter | action 4.1 | 1 | HEPA Filter Monitoring | `ResetCondition` command |
+| Identify | display brightness 6.1 | 1 | Identify | `Identify` command → blink display (internal use only) |
+| Air quality level | 13.8 (0–5) | 2 | Air Quality | `AirQuality` enum |
+| PM2.5 | 3.6 (µg/m³) | 2 | PM2.5 Concentration Measurement | `MeasuredValue`, unit µg/m³, medium Air |
+| Temperature | 3.8 (°C) | 3 | Temperature Measurement | `MeasuredValue` (0.01 °C) |
+| Humidity | 3.7 (%) | 4 | Relative Humidity Measurement | `MeasuredValue` (0.01 %) |
+| Device info | `model`, `mcu_version` | 0 | Basic Information | Product name, software version strings |
+| Child lock | 7.1 | — | — | Not exposed (D2) |
+| Buzzer | 5.1 | — | — | Not exposed (D2) |
+| Display brightness | 6.1 | — | — | Not exposed (D2); used internally for Identify |
+| Fault code | 2.1 | — | — | Logged; consider General Diagnostics later |
+| Filter door | 15.5 | — | — | Logged |
+| Use time, purified volume, average AQI | 12.1, 13.1, 13.2 | — | — | Ignored |
+
+### Fan Control configuration
+
+| Attribute | Value |
+|---|---|
+| Features | **SPD** (MultiSpeed), **AUT** (Auto), **WND** (Wind) |
+| `FanModeSequence` | 2 = Off / Low / Med / High / Auto |
+| `SpeedMax` | 15 |
+| `WindSupport` | SleepWind |
+
+### Fan Control behaviour: Matter → purifier
+
+| Controller writes | Sent to MCU (queued `set_properties`) |
+|---|---|
+| `FanMode` = Off | `2 2 false` |
+| `FanMode` = Low / Medium / High | `2 2 true`, `2 5 3`, `2 4 1/2/3` |
+| `FanMode` = On | Treated as High |
+| `FanMode` = Auto | `2 2 true`, `2 5 0` |
+| `SpeedSetting` = 0 / `PercentSetting` = 0 | `2 2 false` |
+| `SpeedSetting` = n (1–15) | `2 2 true`, `2 5 2`, `10 10 n−1` |
+| `PercentSetting` = p (1–100) | As `SpeedSetting` = ⌈15 · p / 100⌉ |
+| `WindSetting` = SleepWind | `2 2 true`, `2 5 1` |
+| `WindSetting` cleared | `2 5 0` (back to Auto) |
+
+### Fan Control behaviour: purifier → Matter
+
+| Purifier state | `FanMode` | `SpeedSetting` / `PercentSetting` | `WindSetting` |
+|---|---|---|---|
+| Power off | Off | 0 / 0 | none |
+| Auto | Auto | null / null | none |
+| Sleep | Low | null / null | SleepWind |
+| Manual level 1 / 2 / 3 | Low / Medium / High | 5 / 10 / 15 → 33 / 67 / 100 % | none |
+| Favorite level f (0–14) | Low / Medium / High by thirds of f | f+1 / ⌈(f+1)·100/15⌉ % | none |
+
+`PercentCurrent` = (rpm − 300) / (2300 − 300) · 100, clamped to 1–100 while
+running and 0 when off. `SpeedCurrent` = ⌈15 · PercentCurrent / 100⌉.
+
+### Other value conversions
+
+| From | To |
+|---|---|
+| AQI state 0 Best / 1 Good / 2 Normal / 3 Bad / 4 Worse / 5 Unhealthy | `AirQuality` Good / Fair / Moderate / Poor / VeryPoor / ExtremelyPoor |
+| Filter life % | `Condition` = %; `ChangeIndication` = OK > 10 %, Warning 1–10 %, Critical 0 % |
+| Temperature °C (float) | round(°C × 100) |
+| Humidity % | % × 100 |
+
+To verify on hardware:
+
+- What favorite level 0 means on the 3H.
+- The 10 % filter warning threshold, which should match the purifier's own display.
+- Whether the MCU accepts mode and level in one `set_properties` line or needs separate ones.
+
+## Phases
+
+### Phase 0: Hardware recon (needs the purifier)
+
+1. Back up the flash as described in the README: `chip-id`, `flash-id`,
+   `espefuse summary`, two `read-flash` dumps with matching SHA-256, then
+   `verify-flash`.
+2. Decode the stock partition table (size of Xiaomi's app).
+3. Capture stock UART traffic on both lines (ESP32 TX and MCU TX), using two
+   USB-UART RX pins or a logic analyzer:
+   - power-on until the Wi-Fi LED is solid;
+   - every button;
+   - every Mi Home action (power, each mode, fan level, favorite level,
+     sleep, filter reset);
+   - a few minutes idle, for the heartbeat, `time` and `net`.
+
+   ⚠️ The purifier is on mains here. Use a laptop on battery and touch only
+   the low-voltage header.
+4. Share the chip and eFuse output, partition table and capture logs, with
+   the DID, token and MAC blanked out. Never share the dump.
+
+**Done when** we know: single or dual core, flash size, whether the MAC CRC
+is bad, the boot handshake, the heartbeat, and the MCU's expectations for
+`net` and `time`.
+
+### Phase 1: Project skeleton
+
+Mirror [esp32-homecontrol-matter](https://github.com/psytraxx/esp32-homecontrol-matter):
+
+- **Build files:** `CMakeLists.txt` and `main/idf_component.yml` (IDF
+  `>=6.1.0,<6.2.0`, `espressif/esp_matter` 1.6.x).
+- **`sdkconfig.defaults` for `esp32`:**
+  - Wi-Fi station on; Thread, ICD and sleep off;
+  - NimBLE, with BLE memory released after commissioning;
+  - unicore until Phase 0 says otherwise;
+  - MAC CRC ignore prepared but kept off until Phase 0 confirms it;
+  - CHIP logging at error level;
+  - `CONFIG_ESP_MATTER_MAX_DYNAMIC_ENDPOINT_COUNT`.
+- **Partitions:** `partitions_4mb.csv` with a single factory app (D3 later).
+- **Pairing (D4):** `chip_project_config.h` and `tools/spake2p_verifier.py`.
+- **Code from the plant monitor:** `boot_diag.cpp/.h` (boot-loop guard).
+- **Firmware:** `app_main.cpp` brings up a root-node-only, commissionable
+  Matter device.
+- **CI and project files:** `.github/workflows/build.yaml` (`esp32` build
+  with `-Werror`, plus native tests), the `test/` Unity harness, `CLAUDE.md`,
+  `CHANGELOG.md`, `renovate.json`, `.clang-format`, `.clangd`, `.gitignore`.
+
+**Done when** CI is green. Record the binary size for D3.
+
+### Phase 2: MIoT protocol core (pure C++, host-tested)
+
+| File | Contents |
+|---|---|
+| `main/miot_protocol.h` | Line tokenizer (quoted strings, ` ` escapes, 512-byte limit), reply formatter |
+| `main/miot_queue.h` | Pending down-command queue: FIFO, per-property merge, timeout when no `result` comes back |
+| `main/purifier_model.h` | 3H property table + every conversion in the tables above |
+| `main/miot_session.h` | Received line → reply + events; answers `get_down`, `net`, `time`, `model`, `mcu_version`; tracks MCU state |
+
+**Done when** each file has Unity tests, using real Phase 0 capture lines as
+fixtures.
+
+### Phase 3: UART bridge
+
+1. **`main/miot_uart.cpp`:** UART on GPIO16 (RX) / GPIO17 (TX), 115200 8N1.
+   An RX task assembles `\r`-terminated lines and passes them to
+   `miot_session`, which replies within the MCU's timing. Every line is
+   logged at debug level.
+2. **`tools/mcu_sim.py`:** a host-side STM32 simulator that polls `get_down`
+   and replays property changes from the Phase 0 capture. It lets us develop
+   against any ESP32 devkit over USB-UART without opening the purifier.
+3. **First in-purifier test (bridge only, no Matter endpoints yet):**
+   - the purifier runs normally;
+   - the buttons work;
+   - there are no fault codes;
+   - all properties appear in the log;
+   - the Wi-Fi LED is sane.
+
+   Restore the backup if anything is off.
+
+**Done when** the purifier runs on our firmware with no difference from stock
+except the cloud.
+
+### Phase 4: Matter endpoints
+
+Build them in this order, so endpoint IDs never shift:
+
+1. **EP 1 Air Purifier:** Identify and Fan Control, per the mapping above.
+2. **EP 1:** HEPA Filter Monitoring, including `ResetCondition`.
+3. **EP 2 Air Quality Sensor:** Air Quality and PM2.5.
+4. **EP 3 / EP 4:** temperature and humidity. Set values through the cluster
+   objects (`SetMeasuredValue()`), with real min/max ranges, as the plant
+   monitor learned.
+5. **Echo suppression:** a change made with the buttons updates Matter but is
+   never queued back to the MCU.
+6. **First values before commissioning:** request all properties from the MCU
+   before opening commissioning, so no attribute is null during Home
+   Assistant's interview.
+
+**Done when** every mapped feature is controllable and reported in Home
+Assistant, and the buttons and Matter stay in sync.
+
+### Phase 5: Robustness
+
+- `net` replies follow the real state: `unprov` before pairing, `offline`
+  without Wi-Fi, `cloud` when connected and paired. This keeps the Wi-Fi LED
+  correct.
+- `time` is answered from SNTP.
+- The purifier's own Wi-Fi reset (`restore` from the MCU) erases the Matter
+  fabrics and reopens commissioning.
+- If the MCU goes silent for N seconds, the purifier is flagged as
+  unreachable and fault codes are logged.
+- Wi-Fi and router reconnects are handled; the boot-loop guard comes from
+  `boot_diag`.
+
+### Phase 6: Validation and release
+
+- Pair and test with Home Assistant (reference), Apple Home and Google Home.
+- Soak test for 48 h or more, watching free heap.
+- Rehearse a full restore to stock.
+- CI publishes a merged `.bin`; update the README and CHANGELOG.
+
+## Risks
+
+| Risk | Mitigation |
+|---|---|
+| RAM for Matter, Wi-Fi and BLE together on a classic ESP32, especially unicore | Release BLE after commissioning, keep logging small, track free heap from Phase 1 through the soak test |
+| MCU behaves differently without the Xiaomi cloud (`net` / heartbeat expectations) | Phase 0 capture, then the Phase 3 bridge-only test |
+| Home Assistant ignores attributes that are null during its interview | Populate all values before commissioning opens (Phase 4.6) |
+| Uneven controller support for the Air Purifier device type | Home Assistant is the reference; sensors are also separate endpoints |
+| Fan Control semantics differ between controllers (null percent in Auto, Sleep via Wind) | Test each controller in Phase 6; adjust the reporting table if one misbehaves |
