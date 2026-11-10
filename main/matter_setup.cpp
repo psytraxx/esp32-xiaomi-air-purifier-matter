@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstring>
 #include <ctime>
+#include <vector>
 
 #include "esp_log.h"
 #include "esp_netif_sntp.h"
@@ -25,9 +26,13 @@
 #include <app/clusters/temperature-measurement-server/TemperatureMeasurementCluster.h>
 #include <app/server/CommissioningWindowManager.h>
 #include <app/server/Server.h>
+#include <clusters/general_diagnostics/integration.h>
 #include <clusters/resource_monitor/integration.h>
 #include <data_model_provider/esp_matter_data_model_provider.h>
 #include <platform/CHIPDeviceLayer.h>
+#include <platform/DiagnosticDataProvider.h>
+#include <platform/ESP32/DiagnosticDataProviderImpl.h>
+#include <platform/GeneralFaults.h>
 #include <setup_payload/OnboardingCodesUtil.h>
 
 #include "app_config.h"
@@ -138,6 +143,38 @@ public:
 
 static PurifierFilterDelegate s_filter_delegate;
 
+// ── Hardware faults (General Diagnostics) ────────────────────────────────────
+
+// The purifier's fault code, as General Diagnostics HardwareFaultEnum values.
+// Written and read on the CHIP task only.
+static std::vector<uint8_t> s_active_faults;
+
+using HardwareFaults = chip::DeviceLayer::GeneralFaults<chip::DeviceLayer::kMaxHardwareFaults>;
+
+static void fill_faults(const std::vector<uint8_t> &faults, HardwareFaults &out)
+{
+    for (uint8_t f : faults)
+    {
+        if (out.add(f) != CHIP_NO_ERROR)
+            break; // full: kMaxHardwareFaults, far more than we ever report
+    }
+}
+
+// General Diagnostics reads ActiveHardwareFaults from the platform's
+// diagnostic data provider, which on the ESP32 has none. This keeps all of the
+// platform's diagnostics and adds the purifier's faults.
+class PurifierDiagnosticDataProvider : public chip::DeviceLayer::DiagnosticDataProviderImpl
+{
+public:
+    CHIP_ERROR GetActiveHardwareFaults(HardwareFaults &faults) override
+    {
+        fill_faults(s_active_faults, faults);
+        return CHIP_NO_ERROR;
+    }
+};
+
+static PurifierDiagnosticDataProvider s_diagnostics;
+
 // ── Cluster lookup ────────────────────────────────────────────────────────────
 
 // Code-driven clusters (esp_matter 1.6) are served by objects in the data-model
@@ -247,6 +284,23 @@ static void refresh_air_quality(const purifier::Profile &profile, const purifier
         warn_status("AirQuality", aq->SetAirQuality(static_cast<AirQuality::AirQualityEnum>(*level)));
 }
 
+static void refresh_faults(const purifier::Profile &profile, const purifier::State &state)
+{
+    std::vector<uint8_t> current;
+    for (auto f : purifier::hardware_faults(profile, state))
+        current.push_back(static_cast<uint8_t>(f));
+    if (current == s_active_faults)
+        return;
+    HardwareFaults previous_faults;
+    HardwareFaults current_faults;
+    fill_faults(s_active_faults, previous_faults);
+    fill_faults(current, current_faults);
+    s_active_faults = current;
+    ESP_LOGI(TAG, "Hardware faults: %s", current.empty() ? "none" : "active");
+    // Updates the attribute and records a HardwareFaultChange event.
+    GeneralDiagnostics::GlobalNotifyHardwareFaultsDetect(previous_faults, current_faults);
+}
+
 static void refresh_pm25(const purifier::State &state)
 {
     if (!state.pm25 || s_ep_air_quality == EP_INVALID)
@@ -304,6 +358,8 @@ static void refresh_pending(intptr_t)
         refresh_temperature(state);
     if (changed & purifier::CHANGED_HUMIDITY)
         refresh_humidity(state);
+    if (changed & purifier::CHANGED_FAULT)
+        refresh_faults(*profile, state);
 }
 
 // Changes whose refresh could not be scheduled; folded into the next attempt.
@@ -586,6 +642,18 @@ static esp_err_t create_endpoints(esp_matter::node_t *node, const purifier::Prof
 {
     using namespace esp_matter;
 
+    // Root node: ActiveHardwareFaults and its change event on General
+    // Diagnostics, for the purifier's fault code.
+    if (cluster_t *diag = cluster::get(endpoint::get(node, 0), GeneralDiagnostics::Id))
+    {
+        cluster::general_diagnostics::attribute::create_active_hardware_faults(diag, nullptr, 0, 0);
+        cluster::general_diagnostics::event::create_hardware_fault_change(diag);
+    }
+    else
+    {
+        ESP_LOGW(TAG, "No General Diagnostics cluster on the root node — faults not reported");
+    }
+
     if (create_purifier_endpoint(node) != ESP_OK)
     {
         ESP_LOGE(TAG, "air purifier endpoint failed");
@@ -628,6 +696,9 @@ void matter_setup(EventGroupHandle_t events, purifier::Model model)
 {
     s_events = events;
     s_model = model;
+
+    // Must be set before anything asks for the diagnostic data provider.
+    chip::DeviceLayer::SetDiagnosticDataProvider(&s_diagnostics);
 
     esp_matter::node::config_t node_cfg;
     esp_matter::node_t *node = esp_matter::node::create(&node_cfg, attr_update_cb, identify_cb);

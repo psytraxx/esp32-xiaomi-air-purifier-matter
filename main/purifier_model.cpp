@@ -593,6 +593,15 @@ ChangeIndication change_indication(int filter_life_pct)
     return ChangeIndication::Ok;
 }
 
+std::vector<HardwareFault> hardware_faults(const Profile &p, const State &s)
+{
+    if (!s.fault || *s.fault == 0)
+        return {};
+    if (p.model == Model::Mb3 && *s.fault >= 3 && *s.fault <= 5)
+        return { HardwareFault::Sensor };
+    return { HardwareFault::Unspecified };
+}
+
 int16_t temperature_centi(float c)
 {
     long v = std::lround(c * 100.0f);

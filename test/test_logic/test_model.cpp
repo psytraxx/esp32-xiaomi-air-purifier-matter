@@ -456,8 +456,33 @@ static void test_filter_and_units(void)
     TEST_ASSERT_FALSE(filter_last_changed(now, -1).has_value());
 }
 
+static void test_hardware_faults(void)
+{
+    State s;
+    TEST_ASSERT_EQUAL(0, hardware_faults(H, s).size()); // not reported yet
+    s.fault = 0;
+    TEST_ASSERT_EQUAL(0, hardware_faults(H, s).size());
+    s.fault = 2; // motor stuck
+    TEST_ASSERT_TRUE(hardware_faults(H, s) == std::vector<HardwareFault>{ HardwareFault::Unspecified });
+    for (int code = 3; code <= 5; code++) // sensor errors
+    {
+        s.fault = code;
+        TEST_ASSERT_TRUE(hardware_faults(H, s) == std::vector<HardwareFault>{ HardwareFault::Sensor });
+    }
+    s.fault = 9;
+    TEST_ASSERT_TRUE(hardware_faults(H, s) == std::vector<HardwareFault>{ HardwareFault::Unspecified });
+    s.fault = 4; // the 3C's codes aren't known: never guessed as Sensor
+    TEST_ASSERT_TRUE(hardware_faults(C, s) == std::vector<HardwareFault>{ HardwareFault::Unspecified });
+
+    // The fault property feeds it on both models.
+    State c;
+    TEST_ASSERT_EQUAL_UINT32(CHANGED_FAULT, apply(C, c, upd({ 2, 2 }, Value::of_int(1))));
+    TEST_ASSERT_EQUAL(1, hardware_faults(C, c).size());
+}
+
 void run_model_tests(void)
 {
+    RUN_TEST(test_hardware_faults);
     RUN_TEST(test_model_detection);
     RUN_TEST(test_model_decisions);
     RUN_TEST(test_profiles_differ_where_expected);

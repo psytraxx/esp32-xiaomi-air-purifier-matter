@@ -82,7 +82,7 @@ The 3C's are in [Mi Air Purifier 3C](#mi-air-purifier-3c) below.
 | Child lock | 7.1 | — | — | Not exposed (D2) |
 | Buzzer | 5.1 | — | — | Not exposed (D2) |
 | Display brightness | 6.1 | — | — | Not exposed (D2); used internally for Identify |
-| Fault code | 2.1 | — | — | Logged; consider General Diagnostics later |
+| Fault code | 2.1 | 0 | General Diagnostics | `ActiveHardwareFaults` + `HardwareFaultChange` event: codes 3–5 (sensor errors) → Sensor, other non-zero codes → Unspecified |
 | Filter door | 15.5 | — | — | Logged |
 | Use time, purified volume, average AQI | 12.1, 13.1, 13.2 | — | — | Ignored |
 
@@ -163,7 +163,7 @@ cross-checked against python-miio and esphome-miot
 | Temperature / humidity | — | 3.8 / 3.7 | endpoints 3 / 4 (3H only) |
 | Filter life / hours | 4.1 / 4.3 | 4.3 / 4.5 | HEPA Filter Monitoring |
 | Reset filter | action 4.1 `3 0` | action 4.1 `3 0` | `ResetCondition` |
-| Fault | 2.2 | 2.1 | logged |
+| Fault | 2.2 | 2.1 | General Diagnostics `ActiveHardwareFaults` (3C codes not documented: any non-zero → Unspecified) |
 | Heartbeat | 9.4 | 13.9 | — |
 | Model probe | answers 9.1 | answers 10.8 | — |
 

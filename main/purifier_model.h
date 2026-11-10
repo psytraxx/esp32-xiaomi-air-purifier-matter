@@ -182,6 +182,15 @@ enum class AirQuality : uint8_t
     ExtremelyPoor = 6,
 };
 
+// General Diagnostics HardwareFaultEnum values used for the purifier's fault
+// code (Home Assistant shows any active fault as a "Hardware faults" problem
+// sensor).
+enum class HardwareFault : uint8_t
+{
+    Unspecified = 0x00,
+    Sensor = 0x02,
+};
+
 // Resource Monitoring ChangeIndicationEnum.
 enum class ChangeIndication : uint8_t
 {
@@ -314,6 +323,14 @@ AirQuality air_quality_from_state(int aqi_state);
 AirQuality air_quality_from_pm25(float pm25);
 
 ChangeIndication change_indication(int filter_life_pct);
+
+// Active hardware faults from the purifier's fault code; empty when it
+// reports none (0) or hasn't reported yet.
+//   3H: 1 motor running fault, 2 motor stuck → Unspecified (Matter has no
+//       motor fault); 3 no sensor, 4 humidity sensor, 5 temperature sensor
+//       error → Sensor; any other non-zero code → Unspecified.
+//   3C: codes not documented yet; any non-zero code → Unspecified.
+std::vector<HardwareFault> hardware_faults(const Profile &p, const State &state);
 
 // Matter measurement units: 0.01 °C (int16) and 0.01 % (uint16), clamped to
 // the ranges the endpoints are created with.

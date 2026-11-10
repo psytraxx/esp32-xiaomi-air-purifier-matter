@@ -205,6 +205,7 @@ flowchart TB
 | Filter life, used time, reset | HEPA Filter Monitoring |
 | AQI level, PM2.5 | Air Quality, PM2.5 Concentration Measurement |
 | Temperature, humidity (3H) | Temperature / Relative Humidity Measurement |
+| Device fault | General Diagnostics active hardware faults (in Home Assistant: the "Hardware faults" problem sensor, disabled by default) |
 
 Child lock, buzzer and display brightness aren't exposed; they stay
 controllable on the device itself. Property IDs come from Xiaomi's published

@@ -171,6 +171,13 @@ one model must not renumber the other model's.
   speed/percent write (→ favorite level speed−1 on the 3H, `rpm_for_speed()`
   on the 3C). Speed 15 equals High. If the cluster's mapping changes in
   a future esp_matter, `purifier_model.h` constants and tests must follow.
+- **Device fault** goes to General Diagnostics `ActiveHardwareFaults` on the
+  root endpoint. That attribute is read from the platform's diagnostic data
+  provider, so `matter_setup()` installs `PurifierDiagnosticDataProvider`
+  (the ESP32 provider plus our faults) with `SetDiagnosticDataProvider()`
+  **before** `node::create()`; changes go through
+  `GlobalNotifyHardwareFaultsDetect()` so the attribute report and the
+  `HardwareFaultChange` event fire. Mapping in `hardware_faults()`.
 - **3C air quality** is derived from PM2.5 (`air_quality_from_pm25()`), so a
   PM2.5 change on the 3C also raises `CHANGED_AIR_QUALITY`.
 - **Null attributes during commissioning.** `kServerReady` pushes everything

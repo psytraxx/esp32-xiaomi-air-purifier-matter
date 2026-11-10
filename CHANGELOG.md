@@ -5,6 +5,7 @@ Entries are grouped by date, newest first.
 ## 2026-11-10
 
 ### Added
+- A fault reported by the purifier (such as a stuck fan or a broken sensor) now shows up in Matter as a hardware fault. In Home Assistant it appears as the "Hardware faults" problem sensor, which has to be enabled once on the device page.
 - The firmware now also runs the Mi Air Purifier 3C. The same image works in either purifier: it recognises which one it is in, remembers it, and offers the matching features (the 3C has no temperature or humidity sensor). On the 3C, low, medium and high are set fan speeds, and its air-quality level is worked out from the PM2.5 reading. Not yet tried on a real 3C.
 - The purifier simulator can play a 3C as well, and can stay quiet about its model to test the automatic recognition.
 - The README links the esphome-miot wiki pages for the 3H and the 3C, which have board photos and flashing notes.
