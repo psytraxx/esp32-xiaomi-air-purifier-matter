@@ -132,6 +132,21 @@ static int clamp_int(int v, int lo, int hi)
     return v < lo ? lo : (v > hi ? hi : v);
 }
 
+std::optional<std::pair<uint8_t, uint8_t>> canonical_settings(FanMode mode)
+{
+    switch (mode)
+    {
+    case FanMode::Low:
+        return std::make_pair(PERCENT_LOW, SPEED_LOW);
+    case FanMode::Medium:
+        return std::make_pair(PERCENT_MEDIUM, SPEED_MEDIUM);
+    case FanMode::High:
+        return std::make_pair(PERCENT_HIGH, SPEED_HIGH);
+    default:
+        return std::nullopt;
+    }
+}
+
 FanTarget fan_target(const FanDrive &d)
 {
     FanTarget t;
@@ -153,24 +168,20 @@ FanTarget fan_target(const FanDrive &d)
     const uint8_t pct = d.percent_setting.value_or(0);
     const uint8_t spd = d.speed_setting.value_or(0);
 
-    // Values the cluster assigns for a FanMode write → manual levels.
-    if ((pct == PERCENT_LOW && spd == SPEED_LOW) || (!d.percent_setting && !d.speed_setting && d.mode == FanMode::Low))
+    // Values the cluster assigns for a FanMode write → manual levels. A
+    // FanMode without any settings (no MultiSpeed info) also names its level.
+    const bool no_settings = !d.percent_setting && !d.speed_setting;
+    const FanMode named = d.mode == FanMode::On ? FanMode::High : d.mode;
+    for (int level = 1; level <= 3; level++)
     {
-        t.mode = Mode::Manual;
-        t.fan_level = 1;
-        return t;
-    }
-    if ((pct == PERCENT_MEDIUM && spd == SPEED_MEDIUM) || (!d.percent_setting && !d.speed_setting && d.mode == FanMode::Medium))
-    {
-        t.mode = Mode::Manual;
-        t.fan_level = 2;
-        return t;
-    }
-    if ((pct == PERCENT_HIGH && spd == SPEED_HIGH) || (!d.percent_setting && !d.speed_setting && (d.mode == FanMode::High || d.mode == FanMode::On)))
-    {
-        t.mode = Mode::Manual;
-        t.fan_level = 3;
-        return t;
+        const FanMode m = level == 1 ? FanMode::Low : (level == 2 ? FanMode::Medium : FanMode::High);
+        auto c = canonical_settings(m);
+        if ((c && pct == c->first && spd == c->second) || (no_settings && named == m))
+        {
+            t.mode = Mode::Manual;
+            t.fan_level = level;
+            return t;
+        }
     }
 
     // A speed or percent write → favorite mode, speed s = favorite level s−1.

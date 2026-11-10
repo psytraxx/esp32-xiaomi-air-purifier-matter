@@ -184,9 +184,28 @@ static void refresh_fan(const purifier::State &state)
     if (view)
     {
         if (view->kind == purifier::FanView::Kind::Speed)
+        {
             warn_status("SpeedSetting", fan->SetSpeedSetting(chip::app::DataModel::MakeNullable(view->speed)));
+        }
         else
-            warn_status("FanMode", fan->SetFanMode(static_cast<FanControl::FanModeEnum>(view->mode)));
+        {
+            auto mode = static_cast<FanControl::FanModeEnum>(view->mode);
+            // The cluster ignores a FanMode it already has, so going from a
+            // favorite speed to the manual level with the same name (e.g.
+            // speed 3 "Low" → manual level 1 "Low") would keep the old speed.
+            // Step through Auto to make it re-apply the mode's own values.
+            auto expected = purifier::canonical_settings(view->mode);
+            if (expected && fan->GetFanMode() == mode)
+            {
+                auto pct = fan->GetPercentSetting();
+                auto spd = fan->GetSpeedSetting();
+                bool canonical = !pct.IsNull() && !spd.IsNull() && pct.Value() == expected->first &&
+                                 spd.Value() == expected->second;
+                if (!canonical)
+                    fan->SetFanMode(FanControl::FanModeEnum::kAuto);
+            }
+            warn_status("FanMode", fan->SetFanMode(mode));
+        }
 
         chip::BitMask<FanControl::WindBitmap> wind;
         if (view->sleep_wind)
@@ -283,8 +302,12 @@ static void refresh_pending(intptr_t)
         refresh_humidity(state);
 }
 
+// Changes whose refresh could not be scheduled; folded into the next attempt.
+static std::atomic<uint32_t> s_unscheduled_changes{ 0 };
+
 void matter_on_purifier_changed(uint32_t changed)
 {
+    changed |= s_unscheduled_changes.exchange(0);
     // Only the first change since the last refresh schedules work; later ones
     // ride along with it.
     if (s_pending_changes.fetch_or(changed) != 0)
@@ -292,9 +315,9 @@ void matter_on_purifier_changed(uint32_t changed)
     CHIP_ERROR err = chip::DeviceLayer::PlatformMgr().ScheduleWork(refresh_pending, 0);
     if (err != CHIP_NO_ERROR)
     {
-        // Leave the bits set; the next change retries scheduling.
-        s_pending_changes.fetch_and(0);
-        s_pending_changes.fetch_or(changed);
+        // Nothing is scheduled now, so the pending bits must be cleared or no
+        // later change would ever schedule again. Keep them for the next try.
+        s_unscheduled_changes.fetch_or(s_pending_changes.exchange(0));
         ESP_LOGW(TAG, "ScheduleWork failed: %" CHIP_ERROR_FORMAT, err.Format());
     }
 }
@@ -439,6 +462,8 @@ static void matter_event_cb(const chip::DeviceLayer::ChipDeviceEvent *event, int
         s_wifi_connected = event->WiFiConnectivityChange.Result == kConnectivity_Established;
         ESP_LOGI(TAG, "Wi-Fi %s", s_wifi_connected ? "connected" : "disconnected");
         publish_network_state();
+        if (s_wifi_connected)
+            start_sntp();
         break;
 
     case DeviceEventType::kInterfaceIpAddressChanged:

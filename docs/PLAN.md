@@ -16,13 +16,25 @@ flowchart LR
 
 Phases 1 and 2 don't need the purifier and run in parallel with Phase 0.
 
+## Status
+
+| Phase | State |
+|---|---|
+| 0 Hardware recon | **Open** — needs the purifier |
+| 1 Project skeleton | **Done** — builds in CI ([PR #1](https://github.com/psytraxx/esp32-xiaomi-air-purifier-matter/pull/1)) |
+| 2 MIoT protocol core | **Done** — host-tested; capture-based fixtures follow Phase 0 |
+| 3 UART bridge | **Written** (`purifier_link`, `tools/mcu_sim.py`); devkit and in-purifier tests open |
+| 4 Matter endpoints | **Written** (all four endpoints, delegates, echo suppression); controller tests open |
+| 5 Robustness | **Partly written** (Wi-Fi LED via `net`, SNTP `time`, `restore` → factory reset, MCU-silence log); reachability flag open |
+| 6 Validation + release | CI builds a flashable image; the rest is open |
+
 ## Decisions
 
 | # | Topic | Decision |
 |---|---|---|
 | D1 | Fan / mode control | **Matter Fan Control cluster** for everything fan-related: power, Auto, Low/Med/High, fine speed, Sleep. No separate On/Off cluster, so there's a single source of truth for power. Mapping below. |
 | D2 | Child lock, buzzer, display brightness | **Not exposed.** They stay controllable on the device itself. |
-| D3 | Matter OTA updates | **Decide later**, once Phase 1 gives the binary size. Phase 1 starts with a single-app 4 MB layout. |
+| D3 | Matter OTA updates | **Decide later.** Data is in: the first CI build is 1.39 MB, and two OTA slots of 1.875 MB (esp-matter's own 4 MB layout) would leave ~480 KB headroom each. Single-app layout until decided. |
 | D4 | Pairing code | **Per build, like the plant monitor**: discriminator, passcode and SPAKE2+ verifier in `main/chip_project_config.h`, generated with `tools/spake2p_verifier.py`. |
 | D5 | License | Open |
 
@@ -87,11 +99,12 @@ MIoT IDs are `siid.piid` from the
 |---|---|
 | `FanMode` = Off | `2 2 false` |
 | `FanMode` = Low / Medium / High | `2 2 true`, `2 5 3`, `2 4 1/2/3` |
-| `FanMode` = On | Treated as High |
+| `FanMode` = On | The cluster turns it into High → `2 4 3` |
 | `FanMode` = Auto | `2 2 true`, `2 5 0` |
 | `SpeedSetting` = 0 / `PercentSetting` = 0 | `2 2 false` |
-| `SpeedSetting` = n (1–15) | `2 2 true`, `2 5 2`, `10 10 n−1` |
-| `PercentSetting` = p (1–100) | As `SpeedSetting` = ⌈15 · p / 100⌉ |
+| `SpeedSetting` = n (1–14) | `2 2 true`, `2 5 2`, `10 10 n−1` |
+| `SpeedSetting` = 15 | Same values as `FanMode` = High → manual level 3 |
+| `PercentSetting` = p (1–99) | The cluster derives `SpeedSetting` = ⌈15 · p / 100⌉, then as above |
 | `WindSetting` = SleepWind | `2 2 true`, `2 5 1` |
 | `WindSetting` cleared | `2 5 0` (back to Auto) |
 
@@ -101,9 +114,15 @@ MIoT IDs are `siid.piid` from the
 |---|---|---|---|
 | Power off | Off | 0 / 0 | none |
 | Auto | Auto | null / null | none |
-| Sleep | Low | null / null | SleepWind |
-| Manual level 1 / 2 / 3 | Low / Medium / High | 5 / 10 / 15 → 33 / 67 / 100 % | none |
-| Favorite level f (0–14) | Low / Medium / High by thirds of f | f+1 / ⌈(f+1)·100/15⌉ % | none |
+| Sleep | Low | 1 / 33 % | SleepWind |
+| Manual level 1 / 2 / 3 | Low / Medium / High | 1 / 33 %, 8 / 66 %, 15 / 100 % | none |
+| Favorite level f (0–14) | Low / Medium / High by thirds | f+1 / ⌊(f+1)·100/15⌋ % | none |
+
+The Fan Control cluster in esp_matter 1.6 owns the FanMode ↔ Percent ↔ Speed
+relationship: writing FanMode Low/Medium/High always yields 33 %/1, 66 %/8 and
+100 %/15, and writing a speed or percent derives the other two. The firmware
+pushes either a FanMode or a SpeedSetting and lets the cluster fill in the
+rest, and recognises a controller's FanMode write by exactly those pairs.
 
 `PercentCurrent` = (rpm − 300) / (2300 − 300) · 100, clamped to 1–100 while
 running and 0 when off. `SpeedCurrent` = ⌈15 · PercentCurrent / 100⌉.

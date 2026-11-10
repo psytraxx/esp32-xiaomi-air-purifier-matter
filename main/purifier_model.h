@@ -12,6 +12,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <utility>
 #include <vector>
 
 #include "miot_protocol.h"
@@ -107,6 +108,10 @@ inline constexpr uint8_t PERCENT_HIGH = 100;
 inline constexpr uint8_t SPEED_LOW = 1;
 inline constexpr uint8_t SPEED_MEDIUM = (SPEED_MAX + 1) / 2;
 inline constexpr uint8_t SPEED_HIGH = SPEED_MAX;
+
+// The (PercentSetting, SpeedSetting) pair the cluster assigns for FanMode
+// Low/Medium/High; empty for every other mode.
+std::optional<std::pair<uint8_t, uint8_t>> canonical_settings(FanMode mode);
 
 // Air Quality AirQualityEnum.
 enum class AirQuality : uint8_t

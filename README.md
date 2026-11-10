@@ -9,9 +9,11 @@ Wi-Fi module. The ESP32 then joins your Matter fabric directly (Apple Home,
 Google Home, Home Assistant, SmartThings, …) instead of talking to the Xiaomi
 cloud. No extra hardware or soldering is required.
 
-> **Status: early development / planning.** Nothing here is ready to flash
-> yet. This README documents the hardware, protocol and design the firmware
-> is being built against.
+> **Status: first firmware written, not yet tried on a real purifier.** The
+> protocol and Matter mapping are covered by host tests and the firmware
+> builds in CI, but the hardware facts it relies on (pins, single core, MAC
+> quirk, heartbeat) are still unverified. Do the backup first and expect to
+> restore it. See [docs/PLAN.md](docs/PLAN.md) for what's done and what's next.
 
 ---
 
@@ -216,22 +218,24 @@ Board-specific differences from the plant monitor:
 - **Endpoint IDs are append-only.** New endpoints go at the end so
   already-paired controllers keep their mappings.
 
-### Planned layout
+### Code layout
 
 ```
 main/
-  app_main.cpp          boot sequence, main event loop
-  app_config.h          tunables (poll/heartbeat intervals, timeouts)
-  board_pins.h          UART pins (TX GPIO17, RX GPIO16)
-  miot_uart.cpp/.h      UART driver: \r-framed lines, reply to MCU polls
-  miot_protocol.h       pure parser/formatter for MIoT lines (unit-tested)
-  miot_queue.h          pending down-command queue (unit-tested)
-  purifier_model.h      3H siid/piid table + MIoT ↔ Matter conversions (unit-tested)
-  matter_setup.cpp/.h   esp_matter node + endpoints, attribute callbacks, commissioning
-  chip_project_config.h pairing identity, Basic Information strings
-  boot_diag.cpp/.h      reset reason, boot-loop guard (from the plant monitor)
-test/                   host-native Unity tests
-tools/spake2p_verifier.py
+  app_main.cpp            boot order: boot_diag → purifier link → Matter
+  app_config.h            tunables (poll/heartbeat intervals, timeouts, SNTP)
+  board_pins.h            MCU link: UART2, TX GPIO17, RX GPIO16
+  miot_protocol.h/.cpp    MIoT values, tokenizer                       (host-tested)
+  miot_queue.h/.cpp       commands waiting for the MCU's get_down       (host-tested)
+  miot_session.h/.cpp     one MCU line in → one reply out               (host-tested)
+  purifier_model.h/.cpp   3H property table + MIoT ↔ Matter conversions (host-tested)
+  purifier_link.h/.cpp    UART driver, link task, poll + heartbeat
+  matter_setup.h/.cpp     node, endpoints, Fan Control/HEPA delegates, state → clusters
+  chip_project_config.h   pairing identity, Basic Information strings
+  boot_diag.h/.cpp        reset reason, boot-loop guard (from the plant monitor)
+test/                     host-native Unity tests
+tools/mcu_sim.py          STM32 simulator for testing on any ESP32 board
+tools/spake2p_verifier.py pairing-code verifier generator
 partitions_4mb.csv
 sdkconfig.defaults
 ```
@@ -349,11 +353,24 @@ folder).
 
 ### 7. Flash this firmware
 
-With the module still in bootloader mode (see [Building](#building)):
+With the module still in bootloader mode, either build and flash it yourself
+(see [Building](#building)):
 
 ```bash
 idf.py -p /dev/ttyUSB0 flash monitor
 ```
+
+or flash the image CI built: download the `firmware-esp32` artifact from the
+latest successful **Firmware** run on GitHub and write the merged image at
+offset 0:
+
+```bash
+esptool --port /dev/ttyUSB0 --baud 460800 write-flash 0 air_purifier_matter_merged.bin
+```
+
+The pairing code is set per build in `main/chip_project_config.h`. The CI
+image uses the code committed there, so anyone with that image shares the
+same code; build your own to change it.
 
 Then remove the `GPIO0`–`GND` short and power-cycle the board by unplugging
 and replugging the adapter. The serial log prints the Matter QR code and
@@ -430,21 +447,44 @@ For flashing, the module must be in bootloader mode (`GPIO0`↔`GND` shorted)
 and powered from the UART adapter. See
 [Backup, flashing and restore](#backup-flashing-and-restore).
 
+### Testing without the purifier
+
+`tools/mcu_sim.py` plays the purifier's STM32 on a serial port, so the
+firmware can run on any ESP32 dev board. Wire a second USB-UART adapter to
+the board's MCU-link pins (adapter TX → GPIO16, adapter RX → GPIO17, GND →
+GND), flash the firmware, then:
+
+```bash
+pip install pyserial
+```
+
+```bash
+python3 tools/mcu_sim.py --port /dev/ttyUSB1
+```
+
+The simulator polls the firmware like the real MCU, answers its commands,
+drifts its sensors and reports changes. Type `power`, `mode 2`, `fav 9`,
+`pm 80`, `filter 5`, `restore` or `state` to act like a user at the purifier.
+Commission the board with the pairing code from the console log and watch
+the changes arrive in your controller, and vice versa.
+
 ## Roadmap
 
+Checked items are written and host-tested but not yet run on a purifier.
 The detailed phase plan, decisions and risks are in [docs/PLAN.md](docs/PLAN.md).
 
 
 - [ ] Back up a unit; confirm chip variant (single/dual core), flash size, eFuse MAC and stock partition table
 - [ ] Capture a stock MCU↔ESP32 UART log (boot, button presses, app commands, heartbeat)
-- [ ] Project skeleton on the plant-monitor stack (ESP-IDF 6.1, esp_matter 1.6, `esp32`, 4 MB single-app partitions, CI, Unity tests, CHANGELOG)
-- [ ] MIoT UART driver: line framing, `get_down` command queue, `result`/`properties_changed` parsing
-- [ ] `net` state reporting tied to Matter/Wi-Fi state (correct LED behaviour)
-- [ ] Air Purifier endpoint: Identify + Fan Control
-- [ ] HEPA Filter Monitoring incl. reset
-- [ ] Air Quality, PM2.5, temperature, humidity endpoints
-- [ ] Factory reset via button combo / `restore`
+- [x] Project skeleton on the plant-monitor stack (ESP-IDF 6.1, esp_matter 1.6, `esp32`, 4 MB single-app partitions, CI, Unity tests, CHANGELOG)
+- [x] MIoT UART driver: line framing, `get_down` command queue, `result`/`properties_changed` parsing
+- [x] `net` state reporting tied to Matter/Wi-Fi state (correct LED behaviour)
+- [x] Air Purifier endpoint: Identify + Fan Control
+- [x] HEPA Filter Monitoring incl. reset
+- [x] Air Quality, PM2.5, temperature, humidity endpoints
+- [x] Factory reset via the purifier's own network reset (`restore`)
 - [ ] Matter OTA updates (decision deferred until the binary size is known)
+- [ ] First run on a real purifier (bridge behaves like stock)
 - [ ] Tested with Apple Home, Google Home and Home Assistant
 
 ## Credits and references

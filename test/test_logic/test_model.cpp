@@ -121,6 +121,18 @@ static void test_fan_target_on_and_bare_modes(void)
     TEST_ASSERT_TRUE(fan_target(FanDrive{ FanMode::Smart, std::nullopt, std::nullopt }).mode == Mode::Auto);
 }
 
+static void test_canonical_settings(void)
+{
+    TEST_ASSERT_EQUAL_UINT8(33, canonical_settings(FanMode::Low)->first);
+    TEST_ASSERT_EQUAL_UINT8(1, canonical_settings(FanMode::Low)->second);
+    TEST_ASSERT_EQUAL_UINT8(66, canonical_settings(FanMode::Medium)->first);
+    TEST_ASSERT_EQUAL_UINT8(8, canonical_settings(FanMode::Medium)->second);
+    TEST_ASSERT_EQUAL_UINT8(100, canonical_settings(FanMode::High)->first);
+    TEST_ASSERT_EQUAL_UINT8(15, canonical_settings(FanMode::High)->second);
+    TEST_ASSERT_FALSE(canonical_settings(FanMode::Auto).has_value());
+    TEST_ASSERT_FALSE(canonical_settings(FanMode::Off).has_value());
+}
+
 static void test_commands_power_first_and_skip_unchanged(void)
 {
     State s;
@@ -330,6 +342,7 @@ void run_model_tests(void)
     RUN_TEST(test_fan_target_speed_writes_map_to_favorite);
     RUN_TEST(test_fan_target_percent_writes_map_to_favorite);
     RUN_TEST(test_fan_target_on_and_bare_modes);
+    RUN_TEST(test_canonical_settings);
     RUN_TEST(test_commands_power_first_and_skip_unchanged);
     RUN_TEST(test_commands_unknown_state_sends_everything);
     RUN_TEST(test_commands_off);
