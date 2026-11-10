@@ -22,6 +22,7 @@ cloud. No extra hardware or soldering is required.
 - [Hardware](#hardware)
 - [MCU ↔ ESP32 serial protocol](#mcu--esp32-serial-protocol)
 - [Matter data model](#matter-data-model)
+- [Software stack](#software-stack)
 - [Flashing](#flashing)
 - [Building](#building)
 - [Roadmap](#roadmap)
@@ -203,7 +204,7 @@ vendor-specific attributes, but most controllers ignore those.
    esptool.py --port /dev/ttyUSB0 read_flash 0 ALL stock_backup.bin
    ```
 
-6. Flash this firmware (instructions follow once there's a release).
+6. Flash this firmware with `idf.py -p /dev/ttyUSB0 flash` (see [Building](#building)).
 7. Remove the `GPIO0`–`GND` short, power-cycle, and commission the device
    with the QR code / manual pairing code printed on the serial console.
 
@@ -213,30 +214,107 @@ To restore stock firmware:
 esptool.py --port /dev/ttyUSB0 write_flash 0 stock_backup.bin
 ```
 
+## Software stack
+
+Same stack as
+[psytraxx/esp32-homecontrol-matter](https://github.com/psytraxx/esp32-homecontrol-matter),
+so tooling, conventions and lessons learned carry over:
+
+| | |
+|---|---|
+| Language | C++ on **native ESP-IDF** (`app_main()`, no Arduino) |
+| ESP-IDF | **v6.1** (`idf: ">=6.1.0,<6.2.0"` in `main/idf_component.yml`) |
+| Matter | **`espressif/esp_matter` 1.6.x** managed component; endpoints built with the `esp_matter::endpoint::*::create()` C++ API |
+| Target | **`esp32`** (classic Xtensa). Install the toolchain with `./install.sh esp32`. |
+| Transport | **Matter over Wi-Fi**, BLE (NimBLE) for commissioning only. The classic ESP32 has no 802.15.4 radio, so Thread isn't possible and no Thread Border Router is needed. |
+| Power model | Mains powered and always on: no ICD, no deep sleep (unlike the plant monitor) |
+| Partitions | Custom 4 MB table, single factory app plus a Matter NVS partition. As in the plant monitor, two Matter app slots are unlikely to fit in 4 MB, so updates are by serial flash. |
+| Pairing code | Per-build discriminator, passcode and SPAKE2+ verifier in `main/chip_project_config.h`, generated with `tools/spake2p_verifier.py` |
+| Tests | Host-native [Unity](https://github.com/ThrowTheSwitch/Unity) tests in `test/` for the hardware-free logic: MIoT line parser, command queue, MIoT ↔ Matter value conversions |
+| CI | GitHub Actions: `espressif/esp-idf-ci-action` build (`-Werror`) for `esp32` plus the native test job |
+| Housekeeping | `CHANGELOG.md` (dated, plain language), `CLAUDE.md` agent guide, Renovate |
+
+Board-specific differences from the plant monitor:
+
+- **Custom MAC in eFuse.** Xiaomi burns its own MAC into the module, and its
+  CRC doesn't validate, so the default MAC read fails. We need
+  `CONFIG_ESP_MAC_IGNORE_MAC_CRC_ERROR=y` (the equivalent of esphome-miot's
+  `ignore_efuse_mac_crc`). To verify on hardware.
+- **Possibly single core.** esphome-miot builds the 3H with
+  `CONFIG_FREERTOS_UNICORE=y`. Until `chip_id` proves the module is dual-core,
+  we do the same.
+- **Code-driven clusters.** In esp_matter 1.6, measurement clusters such as
+  Temperature and Relative Humidity are served by cluster objects.
+  `attribute::update()` on them is silently ignored, so values have to be set
+  through the cluster (`SetMeasuredValue()`), and every endpoint needs a real
+  Min/MaxMeasuredValue range. See the plant monitor's `matter_setup.cpp`.
+  Check the same for PM2.5, Air Quality and HEPA Filter Monitoring.
+- **Endpoint IDs are append-only.** New endpoints go at the end so
+  already-paired controllers keep their mappings.
+
+### Planned layout
+
+```
+main/
+  app_main.cpp          boot sequence, main event loop
+  app_config.h          tunables (poll/heartbeat intervals, timeouts)
+  board_pins.h          UART pins (TX GPIO17, RX GPIO16), BOOT/GPIO0
+  miot_uart.cpp/.h      UART driver: \r-framed lines, reply to MCU polls
+  miot_protocol.h       pure parser/formatter for MIoT lines (unit-tested)
+  miot_queue.h          pending down-command queue (unit-tested)
+  purifier_model.h      3H siid/piid table + MIoT ↔ Matter conversions (unit-tested)
+  matter_setup.cpp/.h   esp_matter node + endpoints, attribute callbacks, commissioning
+  chip_project_config.h pairing identity, Basic Information strings
+  boot_diag.cpp/.h      reset reason, boot-loop guard (from the plant monitor)
+test/                   host-native Unity tests
+tools/spake2p_verifier.py
+partitions_4mb.csv
+sdkconfig.defaults
+```
+
 ## Building
 
-Planned toolchain:
+```bash
+# One-time: ESP-IDF v6.1 with the Xtensa toolchain
+git clone -b v6.1 --recursive https://github.com/espressif/esp-idf.git ~/.espressif/v6.1/esp-idf
+~/.espressif/v6.1/esp-idf/install.sh esp32
+```
 
-- [ESP-IDF](https://github.com/espressif/esp-idf) (the version required by the
-  chosen esp-matter release)
-- [esp-matter](https://github.com/espressif/esp-matter) (Espressif's Matter SDK,
-  based on connectedhomeip)
+```bash
+source ~/.espressif/v6.1/esp-idf/export.sh
+```
 
-Target `esp32`; Matter over Wi-Fi, commissioned over BLE. Build instructions
-will be added with the first firmware commit.
+```bash
+idf.py set-target esp32
+```
+
+```bash
+idf.py build
+```
+
+```bash
+idf.py -p /dev/ttyUSB0 flash monitor
+```
+
+```bash
+cmake -S test -B test/build && cmake --build test/build && ./test/build/test_logic
+```
+
+For flashing, the module must be in bootloader mode (`GPIO0`↔`GND` shorted)
+and powered from the UART adapter. See [Flashing](#flashing).
 
 ## Roadmap
 
 - [ ] Confirm chip variant (single/dual core) and flash size on real hardware
 - [ ] Capture a stock MCU↔ESP32 UART log (boot, button presses, app commands)
-- [ ] esp-matter project skeleton for `esp32` with a 4 MB partition table (with OTA if it fits)
+- [ ] Project skeleton on the plant-monitor stack (ESP-IDF 6.1, esp_matter 1.6, `esp32`, 4 MB single-app partitions, CI, Unity tests, CHANGELOG)
 - [ ] MIoT UART driver: line framing, `get_down` command queue, `result`/`properties_changed` parsing
 - [ ] `net` state reporting tied to Matter/Wi-Fi state (correct LED behaviour)
 - [ ] Air Purifier endpoint: On/Off + Fan Control
 - [ ] HEPA Filter Monitoring incl. reset
 - [ ] Air Quality, PM2.5, temperature, humidity endpoints
 - [ ] Factory reset via button combo / `restore`
-- [ ] Matter OTA updates
+- [ ] Matter OTA updates (only if a dual-slot layout fits in 4 MB)
 - [ ] Tested with Apple Home, Google Home and Home Assistant
 - [ ] Possibly support other MIoT purifiers (3C, 4, 4 Lite, …) through per-model property tables
 
