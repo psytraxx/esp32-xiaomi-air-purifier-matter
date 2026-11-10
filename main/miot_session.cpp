@@ -115,6 +115,8 @@ std::string Session::handle_line(std::string_view line, uint32_t now_ms)
         {
             m_model = t[1].text;
             log("MCU model: " + m_model);
+            if (m_hooks.on_model)
+                m_hooks.on_model(m_model);
         }
         return "ok";
     }

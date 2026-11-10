@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "miot_session.h"
+#include "purifier_model.h"
 
 using namespace miot;
 
@@ -16,6 +17,7 @@ struct Recorder
     std::vector<std::pair<uint16_t, uint16_t>> events;
     std::vector<std::string> logs;
     int restores = 0;
+    std::string model;
     NetState net = NetState::Unprovisioned;
     std::string time_str = "0";
     bool last_time_posix = false;
@@ -30,6 +32,7 @@ Session make_session(Recorder &r)
     h.on_set_failed = [&r](PropertyId id, int code) { r.set_failures.push_back({ id, code }); };
     h.on_event = [&r](uint16_t s, uint16_t e, const std::vector<PropertyUpdate> &) { r.events.push_back({ s, e }); };
     h.on_restore = [&r]() { r.restores++; };
+    h.on_model = [&r](const std::string &m) { r.model = m; };
     h.net_state = [&r]() { return r.net; };
     h.time_reply = [&r](bool posix) {
         r.last_time_posix = posix;
@@ -177,6 +180,7 @@ static void test_time_mac_model_version(void)
     TEST_ASSERT_EQUAL_STRING("aa:bb:cc:dd:ee:ff", s.handle_line("mac", 1).c_str());
     TEST_ASSERT_EQUAL_STRING("ok", s.handle_line("model zhimi.airpurifier.mb3", 1).c_str());
     TEST_ASSERT_EQUAL_STRING("zhimi.airpurifier.mb3", s.model().c_str());
+    TEST_ASSERT_EQUAL_STRING("zhimi.airpurifier.mb3", r.model.c_str());
     TEST_ASSERT_EQUAL_STRING("ok", s.handle_line("mcu_version 0042", 1).c_str());
     TEST_ASSERT_EQUAL_STRING("0042", s.mcu_version().c_str());
 }
@@ -211,8 +215,26 @@ static void test_last_rx_tracking(void)
     TEST_ASSERT_EQUAL_UINT32(1234, s.last_rx_ms());
 }
 
+// The model probe end to end, with the replies tools/mcu_sim.py gives.
+static void test_model_probe_through_session(void)
+{
+    const char *replies[] = { "result 10 8 0 590 9 1 -4003", "result 10 8 -4003 9 1 0 650" };
+    const purifier::Model expected[] = { purifier::Model::Mb3, purifier::Model::Mb4 };
+    for (int i = 0; i < 2; i++)
+    {
+        Recorder r;
+        Session s = started_session(r);
+        s.queue_get(purifier::probe_properties());
+        TEST_ASSERT_EQUAL_STRING("down get_properties 10 8 9 1", s.handle_line("get_down", 1).c_str());
+        s.handle_line(replies[i], 2);
+        TEST_ASSERT_EQUAL(1, r.props.size());
+        TEST_ASSERT_TRUE(purifier::model_from_probe(r.props) == expected[i]);
+    }
+}
+
 void run_session_tests(void)
 {
+    RUN_TEST(test_model_probe_through_session);
     RUN_TEST(test_start_announces_net_then_version_request);
     RUN_TEST(test_net_change_jumps_queue_once);
     RUN_TEST(test_net_reply);

@@ -6,9 +6,10 @@ hardware, the serial protocol, backup/restore and the Matter mapping, read
 repeat them and focuses on the codebase, internal constants and platform
 footguns.
 
-Matter firmware for the **Xiaomi Mi Air Purifier 3H** (`zhimi.airpurifier.mb3`),
+Matter firmware for the **Xiaomi Mi Air Purifier 3H** (`zhimi.airpurifier.mb3`)
+and **3C** (`zhimi.airp.mb4a` / `zhimi.airpurifier.mb4`) — one image for both,
 running on the purifier's own **ESP-WROOM-32D** (classic ESP32, Xtensa, 4 MB
-flash). The STM32F412 main controller keeps its stock firmware; this firmware
+flash). The STM32 main controller keeps its stock firmware; this firmware
 replaces Xiaomi's cloud gateway on the ESP32, talks the **MIoT serial protocol**
 to the STM32 over UART, and exposes the purifier as a Matter **Air Purifier
 over Wi-Fi** (BLE for commissioning only). Mains powered, always on: no ICD, no
@@ -74,18 +75,45 @@ Entry point is `app_main()` in [main/app_main.cpp](main/app_main.cpp).
 | `main/miot_protocol.h/.cpp` | MIoT values (`Value`), tokenizer, ID parsing | yes |
 | `main/miot_queue.h/.cpp` | Commands waiting for the MCU's `get_down`: FIFO, set-merge, get-dedupe, bounded | yes |
 | `main/miot_session.h/.cpp` | One MCU line in → one reply out; hooks for properties, set failures, events, `restore`, `net`, `time`, `mac` | yes |
-| `main/purifier_model.h/.cpp` | 3H property IDs, tracked `State`, all MIoT ↔ Matter conversions (the tables in docs/PLAN.md) | yes |
+| `main/purifier_model.h/.cpp` | Per-model `Profile`s (3H, 3C), model detection/decision rules, tracked `State`, all MIoT ↔ Matter conversions (the tables in docs/PLAN.md) | yes |
 | `main/purifier_link.h/.cpp` | UART2 driver + link task: line framing, session under a recursive mutex, 30 s poll, 60 s heartbeat, MCU-silence detection | no |
 | `main/matter_setup.h/.cpp` | Node + endpoints, Fan Control / HEPA delegates, state → cluster refresh on the CHIP task, commissioning + Wi-Fi events, SNTP | no |
-| `main/app_main.cpp` | Boot order (boot_diag → link → Matter), `restore` timer, heap log loop | no |
+| `main/app_main.cpp` | Boot order (boot_diag → link → model choice → Matter), remembered model in NVS, restart on a model change, `restore` timer, heap log loop | no |
 | `main/boot_diag.h/.cpp` | Reset reason, boot streak, Matter-start fault counter → wipe Matter NVS (from the plant monitor) | no |
 | `main/app_config.h` | Tunable constants | — |
 | `main/board_pins.h` | UART number and pins | — |
 | `main/chip_project_config.h` | Pairing identity, Basic Information strings | — |
-| `tools/mcu_sim.py` | STM32 simulator for a devkit | — |
+| `tools/mcu_sim.py` | STM32 simulator for a devkit (`--model mb3`/`mb4`, `--silent-model`) | — |
 
 Keep protocol and mapping logic in the host-tested files; the ESP-only files
 should stay thin glue.
+
+## Supported Models
+
+Everything model-specific lives in a `purifier::Profile` in
+[main/purifier_model.cpp](main/purifier_model.cpp): property IDs (optional
+ones absent on a model), mode wire values, fan scheme (3H: manual levels +
+favorite level 0–14; 3C: favorite rpm only), rpm ranges, 3C Low/Medium/High
+rpm presets, heartbeat, reset-filter action. Code outside `purifier_model`
+must not hard-code a property ID — go through the profile. To add a model,
+add a profile, extend `model_from_string`, pick a probe property only it
+has, and add round-trip tests.
+
+Model choice (`app_main.cpp`, rules in `boot_model()` / `on_model_detected()`):
+
+1. **Forced** by `-DPURIFIER_MODEL=1|2` (0 = detect, the default in
+   `app_config.h`): used as is; a mismatching detection only logs.
+2. Else the model **remembered in NVS** (`purifier`/`model`) from an earlier
+   boot.
+3. Else **detect now**: the link queues a probe (`get_properties 10 8 9 1` —
+   only the 3H answers 10.8, only the 3C 9.1) and also listens for the MCU's
+   `model` announcement, which it only sends when it boots. Waits up to
+   `MODEL_DETECT_TIMEOUT_MS`, then falls back to the 3H without remembering.
+
+A later detection that differs from the running model stores it and
+**restarts**, because the Matter endpoints depend on the model. The link
+polls nothing but the probe until `purifier_link_set_model()` has chosen a
+profile.
 
 ## Data Flow
 
@@ -112,7 +140,9 @@ Created in [main/matter_setup.cpp](main/matter_setup.cpp) in this order —
 **append new endpoints, never insert**, so paired controllers keep their IDs:
 **1** Air Purifier (Identify, Fan Control, HEPA Filter Monitoring),
 **2** Air Quality Sensor (Air Quality, PM2.5 Concentration Measurement),
-**3** Temperature Sensor, **4** Humidity Sensor.
+**3** Temperature Sensor, **4** Humidity Sensor — 3 and 4 on the 3H only.
+A unit is always the same model, so its IDs never shift; a new endpoint for
+one model must not renumber the other model's.
 `CONFIG_ESP_MATTER_MAX_DYNAMIC_ENDPOINT_COUNT=6` (root + 4 + headroom).
 
 - **Code-driven clusters.** In esp_matter 1.6 Fan Control, HEPA Filter
@@ -136,10 +166,13 @@ Created in [main/matter_setup.cpp](main/matter_setup.cpp) in this order —
   Fan Control setter call inside that flag.
 - **FanMode vs speed writes.** The cluster itself maps FanMode → Percent/Speed
   (Low 33 %/1, Medium 66 %/8, High 100 %/15 with SpeedMax 15). `fan_target()`
-  uses exactly those pairs to recognise a FanMode write (→ manual level 1–3);
-  anything else is a speed/percent write (→ favorite level speed−1). Speed 15
-  equals High and maps to manual level 3. If the cluster's mapping changes in
+  uses exactly those pairs to recognise a FanMode write (→ a named level
+  1–3: manual level on the 3H, a preset rpm on the 3C); anything else is a
+  speed/percent write (→ favorite level speed−1 on the 3H, `rpm_for_speed()`
+  on the 3C). Speed 15 equals High. If the cluster's mapping changes in
   a future esp_matter, `purifier_model.h` constants and tests must follow.
+- **3C air quality** is derived from PM2.5 (`air_quality_from_pm25()`), so a
+  PM2.5 change on the 3C also raises `CHANGED_AIR_QUALITY`.
 - **Null attributes during commissioning.** `kServerReady` pushes everything
   the MCU has reported so far, so a controller's first read isn't null.
 
@@ -177,8 +210,11 @@ Created in [main/matter_setup.cpp](main/matter_setup.cpp) in this order —
 ## Still To Verify On Hardware (Phase 0)
 
 Single/dual core and flash size; whether the MAC CRC really fails; UART pins;
-the heartbeat (13.9 = 60 every 60 s); the filter-reset action arguments
-(`4.1` with `3 0`); what favorite level 0 means; the 10 % filter-warning
-threshold; whether the MCU reports property changes on its own or only on
-polls. Update `purifier_model.h`, `board_pins.h`, `sdkconfig.defaults` and the
-tests together when the capture says otherwise.
+the heartbeat (13.9 on the 3H, 9.4 on the 3C, = 60 every 60 s); the
+filter-reset action arguments (`4.1` with `3 0`); what favorite level 0 means
+(3H); the 10 % filter-warning threshold; whether the MCU reports property
+changes on its own or only on polls; whether it announces `model` unprompted.
+3C only: that mode 2 is Favorite, its accepted rpm range, comfortable
+Low/Medium/High presets. On the 3C, GPIO0 isn't on the header (short it on
+the module). Update `purifier_model.cpp`, `board_pins.h`,
+`sdkconfig.defaults` and the tests together when a capture says otherwise.

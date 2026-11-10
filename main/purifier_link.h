@@ -21,11 +21,22 @@ struct PurifierLinkCallbacks
     void (*on_state_changed)(uint32_t changed) = nullptr;
     // The user asked for a network reset on the purifier itself.
     void (*on_restore)() = nullptr;
+    // The MCU's model became known: announced by the MCU, or told apart by
+    // which probe property it answers. Reported once per model seen.
+    void (*on_model_detected)(purifier::Model model) = nullptr;
 };
 
 // Install the UART driver and start the link task. Call once, before Matter
-// starts, so the first property values are in by the time a controller reads.
+// starts. The link answers the MCU and probes its model straight away; it
+// polls properties only once purifier_link_set_model() has chosen a profile.
 void purifier_link_start(const PurifierLinkCallbacks &callbacks);
+
+// Choose the property table to use (normally the detected or cached model)
+// and start polling. Call once.
+void purifier_link_set_model(purifier::Model model);
+
+// The profile in use, or nullptr before purifier_link_set_model().
+const purifier::Profile *purifier_link_profile();
 
 // Connectivity, reported to the MCU on its `net` requests (Wi-Fi LED).
 void purifier_link_set_network(bool commissioned, bool wifi_connected);

@@ -1,8 +1,8 @@
 # esp32-xiaomi-air-purifier-matter
 
 Cloud-free [Matter](https://csa-iot.org/all-solutions/matter/) firmware for the
-**Xiaomi Mi Air Purifier 3H** (`zhimi.airpurifier.mb3`, also sold as Mi Air
-Purifier 3).
+**Xiaomi Mi Air Purifier 3H** and **Mi Air Purifier 3C**. One firmware image
+covers both: it detects which purifier it's in.
 
 The firmware replaces the stock firmware on the purifier's built-in ESP32
 Wi-Fi module. The ESP32 then joins your Matter fabric directly (Apple Home,
@@ -19,6 +19,7 @@ cloud. No extra hardware or soldering is required.
 
 ## Contents
 
+- [Supported purifiers](#supported-purifiers)
 - [How it works](#how-it-works)
 - [Hardware](#hardware)
 - [MCU ↔ ESP32 serial protocol](#mcu--esp32-serial-protocol)
@@ -32,9 +33,35 @@ cloud. No extra hardware or soldering is required.
 
 ---
 
+## Supported purifiers
+
+| Purifier | Model IDs | Status | Hardware notes |
+|---|---|---|---|
+| Mi Air Purifier 3 / 3H | `zhimi.airpurifier.mb3` | Primary target | [esphome-miot 3H wiki](https://github.com/dhewg/esphome-miot/wiki/Xiaomi-Mi-Air-Purifier-3H) |
+| Mi Air Purifier 3C | `zhimi.airp.mb4a`, `zhimi.airpurifier.mb4` | Supported in code; property table and fan presets to verify on a unit | [esphome-miot 3C wiki](https://github.com/dhewg/esphome-miot/wiki/Xiaomi-Mi-Air-Purifier-3C) |
+
+The firmware picks the right property table by itself:
+
+- The purifier's controller announces its model when it starts up.
+- If it doesn't (for example after only the ESP32 restarted), the firmware
+  asks for one property each model has and the other doesn't.
+- The detected model is remembered, so later boots start straight away.
+
+A build can also force a model with `idf.py -DPURIFIER_MODEL=1 build` (3H)
+or `-DPURIFIER_MODEL=2` (3C).
+
+What differs between the two in Matter:
+
+| | 3H | 3C |
+|---|---|---|
+| Low / Medium / High | the purifier's manual levels 1–3 | favorite mode at fixed speeds (800 / 1400 / 2200 rpm, to tune) |
+| Fine speed 1–15 | favorite levels 0–14 | favorite speed 300–2200 rpm |
+| Air-quality level | the purifier's own reading | worked out from PM2.5 |
+| Temperature, humidity | yes | no (the 3C has no such sensor) |
+
 ## How it works
 
-The 3H contains two microcontrollers:
+Both purifiers contain two microcontrollers (3H shown):
 
 ```mermaid
 flowchart LR
@@ -62,9 +89,9 @@ flowchart LR
 Because the MCU keeps its stock firmware, fan control, safety logic and the
 physical buttons behave exactly as before.
 
-Only the 3H (`zhimi.airpurifier.mb3`) is in scope. Other Xiaomi purifiers
-with an ESP32 gateway and a separate MCU use the same protocol with different
-property IDs, and could be added later through a per-model property table.
+Other Xiaomi purifiers with an ESP32 gateway and a separate MCU use the same
+protocol with different property IDs, and can be added as another property
+table in `main/purifier_model.cpp`.
 
 ## Hardware
 
@@ -73,19 +100,23 @@ property IDs, and could be added later through a per-model property table.
 | Gateway module | Espressif **ESP-WROOM-32D** (classic ESP32, Wi-Fi + BLE 4.2, no 802.15.4 radio) |
 | Main MCU | **STM32F412** |
 | MCU link | ESP32 `GPIO17` = TX, `GPIO16` = RX, 115200 baud, 8N1 |
-| Flash header | `3.3V`, `GND`, `TX`, `RX`, with a `GPIO0` / `GND` pin pair right above it |
+| Flash header | `3.3V`, `GND`, `TX`, `RX`. On the 3H a `GPIO0` / `GND` pin pair sits right above it; **on the 3C GPIO0 isn't on the header** and has to be shorted to GND on the module itself |
 | MAC address | Xiaomi writes its own MAC into eFuse, and the MAC CRC is reported not to validate (to verify) |
 | Cores | Reported as possibly running single-core. Check with `esptool chip-id`. |
 | Flash size | Expected 4 MB. Check with `esptool flash-id`. |
 
-These values come from community reverse engineering (see
-[Credits](#credits-and-references)). We'll confirm every row on our own unit
-during the backup step.
+Both purifiers use the same module and MCU link. These values come from
+community reverse engineering (see [Credits](#credits-and-references)); we'll
+confirm every row on our own unit during the backup step.
 
 Disassembly is the same as for the other Xiaomi tower purifiers: remove the
 filter, undo the screws inside the filter compartment and at the top, then
 lift off the top cover to reach the controller board. There's a
-[3H disassembly video](https://www.youtube.com/watch?v=_rC2a6l0M2k).
+[3H disassembly video](https://www.youtube.com/watch?v=_rC2a6l0M2k). Board
+photos, pinouts and model-specific notes:
+
+- 3H: [esphome-miot wiki — Xiaomi Mi Air Purifier 3H](https://github.com/dhewg/esphome-miot/wiki/Xiaomi-Mi-Air-Purifier-3H)
+- 3C: [esphome-miot wiki — Xiaomi Mi Air Purifier 3C](https://github.com/dhewg/esphome-miot/wiki/Xiaomi-Mi-Air-Purifier-3C)
 
 ## MCU ↔ ESP32 serial protocol
 
@@ -145,8 +176,8 @@ Commands the module must handle:
 | anything else | Unknown | `error` |
 
 The stock gateway is reported to write a periodic heartbeat to property
-`13.9`. We'll confirm this from a UART capture of the stock firmware before
-relying on it.
+`13.9` (3H) or `9.4` (3C). We'll confirm this from a UART capture of the
+stock firmware before relying on it.
 
 ## Matter data model
 
@@ -161,23 +192,24 @@ flowchart TB
     node --> ep0["EP 0 · Root Node<br/>Basic Information, Network Commissioning, …"]
     node --> ep1["EP 1 · Air Purifier (0x002D)<br/>Identify · Fan Control · HEPA Filter Monitoring"]
     node --> ep2["EP 2 · Air Quality Sensor (0x002C)<br/>Air Quality · PM2.5 Concentration"]
-    node --> ep3["EP 3 · Temperature Sensor (0x0302)"]
-    node --> ep4["EP 4 · Humidity Sensor (0x0307)"]
+    node --> ep3["EP 3 · Temperature Sensor (0x0302)<br/><i>3H only</i>"]
+    node --> ep4["EP 4 · Humidity Sensor (0x0307)<br/><i>3H only</i>"]
 ```
 
 | Purifier feature | Matter |
 |---|---|
-| Power, Auto, manual levels 1–3 | Fan Control `FanMode` Off / Auto / Low / Medium / High |
+| Power, Auto, Low / Medium / High | Fan Control `FanMode` Off / Auto / Low / Medium / High |
 | Favorite mode (15 steps) | Fan Control `SpeedSetting` / `PercentSetting` |
 | Sleep mode | Fan Control `WindSetting` = SleepWind |
 | Motor speed | Fan Control `PercentCurrent` / `SpeedCurrent` |
 | Filter life, used time, reset | HEPA Filter Monitoring |
 | AQI level, PM2.5 | Air Quality, PM2.5 Concentration Measurement |
-| Temperature, humidity | Temperature / Relative Humidity Measurement |
+| Temperature, humidity (3H) | Temperature / Relative Humidity Measurement |
 
 Child lock, buzzer and display brightness aren't exposed; they stay
 controllable on the device itself. Property IDs come from Xiaomi's published
-[MIoT spec for `zhimi.airpurifier.mb3`](https://home.miot-spec.com/spec/zhimi.airpurifier.mb3).
+MIoT specs for [`zhimi.airpurifier.mb3`](https://home.miot-spec.com/spec/zhimi.airpurifier.mb3)
+and [`zhimi.airp.mb4a`](https://home.miot-spec.com/spec/zhimi.airp.mb4a).
 
 ## Software stack
 
@@ -193,7 +225,7 @@ so tooling, conventions and lessons learned carry over:
 | Target | **`esp32`** (classic Xtensa). Install the toolchain with `./install.sh esp32`. |
 | Transport | **Matter over Wi-Fi**, BLE (NimBLE) for commissioning only. The classic ESP32 has no 802.15.4 radio, so Thread isn't possible and no Thread Border Router is needed. |
 | Power model | Mains powered and always on: no ICD, no deep sleep (unlike the plant monitor) |
-| Partitions | Custom 4 MB table, single factory app plus a Matter NVS partition. Two Matter app slots are unlikely to fit in 4 MB, so updates are by serial flash. |
+| Partitions | Custom 4 MB table, single factory app plus NVS. The 1.4 MB firmware would fit two OTA slots; until that's decided (D3), updates are by serial flash. |
 | Pairing code | Per-build discriminator, passcode and SPAKE2+ verifier in `main/chip_project_config.h`, generated with `tools/spake2p_verifier.py` |
 | Tests | Host-native [Unity](https://github.com/ThrowTheSwitch/Unity) tests in `test/` for the hardware-free logic: MIoT line parser, command queue, MIoT ↔ Matter value conversions |
 | CI | GitHub Actions: `espressif/esp-idf-ci-action` build (`-Werror`) for `esp32` plus the native test job |
@@ -222,19 +254,19 @@ Board-specific differences from the plant monitor:
 
 ```
 main/
-  app_main.cpp            boot order: boot_diag → purifier link → Matter
+  app_main.cpp            boot order: boot_diag → purifier link → model → Matter
   app_config.h            tunables (poll/heartbeat intervals, timeouts, SNTP)
   board_pins.h            MCU link: UART2, TX GPIO17, RX GPIO16
   miot_protocol.h/.cpp    MIoT values, tokenizer                       (host-tested)
   miot_queue.h/.cpp       commands waiting for the MCU's get_down       (host-tested)
   miot_session.h/.cpp     one MCU line in → one reply out               (host-tested)
-  purifier_model.h/.cpp   3H property table + MIoT ↔ Matter conversions (host-tested)
+  purifier_model.h/.cpp   3H/3C property tables + MIoT ↔ Matter conversions (host-tested)
   purifier_link.h/.cpp    UART driver, link task, poll + heartbeat
   matter_setup.h/.cpp     node, endpoints, Fan Control/HEPA delegates, state → clusters
   chip_project_config.h   pairing identity, Basic Information strings
   boot_diag.h/.cpp        reset reason, boot-loop guard (from the plant monitor)
 test/                     host-native Unity tests
-tools/mcu_sim.py          STM32 simulator for testing on any ESP32 board
+tools/mcu_sim.py          3H/3C STM32 simulator for testing on any ESP32 board
 tools/spake2p_verifier.py pairing-code verifier generator
 partitions_4mb.csv
 sdkconfig.defaults
@@ -277,7 +309,9 @@ flowchart TD
 1. Unplug the purifier from mains and open it (see [Hardware](#hardware)).
 2. Wire the header: adapter `GND`→`GND`, `3.3V`→`3.3V`, adapter `TX`→`RX`,
    adapter `RX`→`TX`.
-3. Short `GPIO0` to `GND`. The pins sit right above the UART header.
+3. Short `GPIO0` to `GND`. On the 3H the pins sit right above the UART
+   header. On the 3C GPIO0 isn't brought out: short the module's GPIO0 pin to
+   GND directly (see the [3C wiki](https://github.com/dhewg/esphome-miot/wiki/Xiaomi-Mi-Air-Purifier-3C)).
 4. Plug the adapter into the computer. This powers the ESP32, which boots
    into the ROM download mode.
 
@@ -462,9 +496,13 @@ pip install pyserial
 python3 tools/mcu_sim.py --port /dev/ttyUSB1
 ```
 
+That plays a 3H; add `--model mb4` for a 3C. With `--silent-model` it doesn't
+announce its model, so the firmware has to tell the models apart by itself.
+
 The simulator polls the firmware like the real MCU, answers its commands,
-drifts its sensors and reports changes. Type `power`, `mode 2`, `fav 9`,
-`pm 80`, `filter 5`, `restore` or `state` to act like a user at the purifier.
+drifts its sensors and reports changes. Type `power`, `mode 2`, `fav 9`
+(a level on the 3H, an rpm such as `fav 1250` on the 3C), `pm 80`,
+`filter 5`, `restore` or `state` to act like a user at the purifier.
 Commission the board with the pairing code from the console log and watch
 the changes arrive in your controller, and vice versa.
 
@@ -484,7 +522,9 @@ The detailed phase plan, decisions and risks are in [docs/PLAN.md](docs/PLAN.md)
 - [x] Air Quality, PM2.5, temperature, humidity endpoints
 - [x] Factory reset via the purifier's own network reset (`restore`)
 - [ ] Matter OTA updates (decision deferred until the binary size is known)
-- [ ] First run on a real purifier (bridge behaves like stock)
+- [x] 3C support: property table, fan presets, model detection
+- [ ] First run on a real 3H (bridge behaves like stock)
+- [ ] First run on a real 3C; tune its Low/Medium/High speeds
 - [ ] Tested with Apple Home, Google Home and Home Assistant
 
 ## Credits and references
@@ -506,8 +546,12 @@ use their code:
   3H teardown, ESP-WROOM-32D and STM32F412 identification
 - [jaromeyer/mipurifier-esphome](https://github.com/jaromeyer/mipurifier-esphome)
   and [dhewg/esphome-miot](https://github.com/dhewg/esphome-miot): ESPHome-based
-  firmwares for the 3H, the source of the header, pin and module-quirk
-  information
+  firmwares, the source of the header, pin and module-quirk information. Their
+  wiki pages for the [3H](https://github.com/dhewg/esphome-miot/wiki/Xiaomi-Mi-Air-Purifier-3H)
+  and [3C](https://github.com/dhewg/esphome-miot/wiki/Xiaomi-Mi-Air-Purifier-3C)
+  have board photos and flashing notes
+- [python-miio](https://github.com/rytilahti/python-miio): cross-check of the
+  3C's property IDs
 - [muwave.de: Improving a Xiaomi Air Purifier 3H](https://blog.muwave.de/2025/02/hacking-the-xiaomi-air-purifier-3h-1-3/)
 
 Stack:

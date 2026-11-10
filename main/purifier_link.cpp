@@ -24,6 +24,9 @@ static PurifierLinkCallbacks s_cb;
 static SemaphoreHandle_t s_mutex = nullptr;
 static miot::Session *s_session = nullptr;
 static purifier::State s_state;
+// Set once by purifier_link_set_model(); read without the lock afterwards.
+static std::atomic<const purifier::Profile *> s_profile{ nullptr };
+static purifier::Model s_detected = purifier::Model::Unknown;
 
 static std::atomic<bool> s_commissioned{ false };
 static std::atomic<bool> s_wifi_connected{ false };
@@ -49,13 +52,37 @@ static uint32_t now_ms()
 
 // ── Session hooks (run on the link task, lock held) ──────────────────────────
 
+static void report_detected(purifier::Model model, const char *how)
+{
+    if (model == purifier::Model::Unknown || model == s_detected)
+        return;
+    s_detected = model;
+    ESP_LOGI(TAG, "Purifier detected (%s): Mi Air Purifier %s", how, purifier::model_name(model));
+    if (s_cb.on_model_detected)
+        s_cb.on_model_detected(model);
+}
+
+static void on_model(const std::string &name)
+{
+    purifier::Model m = purifier::model_from_string(name);
+    if (m == purifier::Model::Unknown)
+        ESP_LOGW(TAG, "Unsupported purifier model '%s'", name.c_str());
+    report_detected(m, "model announcement");
+}
+
 static void on_properties(const std::vector<miot::PropertyUpdate> &updates)
 {
+    report_detected(purifier::model_from_probe(updates), "probe");
+
+    const purifier::Profile *profile = s_profile.load();
+    if (!profile)
+        return; // model not chosen yet: values arrive again with the first poll
+
     uint32_t changed = 0;
     for (const auto &u : updates)
     {
         ESP_LOGD(TAG, "prop %u.%u = %s", u.id.siid, u.id.piid, u.value.to_wire().c_str());
-        changed |= purifier::apply(s_state, u);
+        changed |= purifier::apply(*profile, s_state, u);
     }
 
     if ((changed & purifier::CHANGED_FAULT) && s_state.fault && *s_state.fault != 0)
@@ -115,8 +142,12 @@ static void send_reply(const std::string &reply)
 
 static void queue_poll()
 {
+    const purifier::Profile *profile = s_profile.load();
     LinkLock lock;
-    s_session->queue_get(purifier::polled_properties());
+    if (profile)
+        s_session->queue_get(purifier::polled_properties(*profile));
+    else if (s_detected == purifier::Model::Unknown)
+        s_session->queue_get(purifier::probe_properties());
 }
 
 static void link_task(void *)
@@ -189,8 +220,11 @@ static void link_task(void *)
         if (now - last_heartbeat_ms >= HEARTBEAT_INTERVAL_MS)
         {
             last_heartbeat_ms = now;
-            LinkLock lock;
-            s_session->queue_set(purifier::prop::HEARTBEAT, miot::Value::of_int(purifier::HEARTBEAT_VALUE));
+            if (const purifier::Profile *profile = s_profile.load())
+            {
+                LinkLock lock;
+                s_session->queue_set(profile->heartbeat, miot::Value::of_int(purifier::HEARTBEAT_VALUE));
+            }
         }
 
         bool alive;
@@ -233,6 +267,7 @@ void purifier_link_start(const PurifierLinkCallbacks &callbacks)
         ESP_LOGI(TAG, "MCU event %u.%u", siid, eiid);
     };
     hooks.on_restore = on_restore;
+    hooks.on_model = on_model;
     hooks.net_state = []() {
         return miot::net_state_for(s_commissioned.load(), s_wifi_connected.load());
     };
@@ -244,7 +279,9 @@ void purifier_link_start(const PurifierLinkCallbacks &callbacks)
     {
         LinkLock lock;
         s_session->start();
-        s_session->queue_get(purifier::polled_properties());
+        // Tell the models apart even if the MCU never announces itself (it
+        // only does so when it boots, and the ESP32 may restart on its own).
+        s_session->queue_get(purifier::probe_properties());
     }
 
     xTaskCreate(link_task, "purifier_link", LINK_TASK_STACK, nullptr, LINK_TASK_PRIORITY, nullptr);
@@ -276,25 +313,48 @@ static void queue_sets(const std::vector<purifier::SetCommand> &cmds, const char
     }
 }
 
+void purifier_link_set_model(purifier::Model model)
+{
+    const purifier::Profile &profile = purifier::profile(model);
+    s_profile.store(&profile);
+    ESP_LOGI(TAG, "Using the Mi Air Purifier %s property table", purifier::model_name(profile.model));
+    LinkLock lock;
+    s_session->queue_get(purifier::polled_properties(profile));
+}
+
+const purifier::Profile *purifier_link_profile()
+{
+    return s_profile.load();
+}
+
 void purifier_link_apply_fan(const purifier::FanDrive &drive)
 {
+    const purifier::Profile *profile = s_profile.load();
+    if (!profile)
+        return;
     LinkLock lock;
     purifier::FanTarget target = purifier::fan_target(drive);
-    queue_sets(purifier::commands_for(target, s_state), "fan");
+    queue_sets(purifier::commands_for(*profile, target, s_state), "fan");
 }
 
 void purifier_link_set_sleep(bool sleep_wind)
 {
+    const purifier::Profile *profile = s_profile.load();
+    if (!profile)
+        return;
     LinkLock lock;
-    queue_sets(purifier::commands_for_sleep(sleep_wind, s_state), "sleep");
+    queue_sets(purifier::commands_for_sleep(*profile, sleep_wind, s_state), "sleep");
 }
 
 void purifier_link_reset_filter()
 {
+    const purifier::Profile *profile = s_profile.load();
+    if (!profile)
+        return;
     LinkLock lock;
     ESP_LOGI(TAG, "filter: reset");
-    s_session->queue_action(purifier::action::RESET_FILTER, purifier::action::RESET_FILTER_ARGS);
-    s_session->queue_get({ purifier::prop::FILTER_LIFE, purifier::prop::FILTER_HOURS });
+    s_session->queue_action(profile->reset_filter, profile->reset_filter_args);
+    s_session->queue_get({ profile->filter_life, profile->filter_hours });
 }
 
 bool purifier_link_mcu_alive()

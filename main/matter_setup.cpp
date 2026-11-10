@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cinttypes>
+#include <cstdio>
 #include <cstring>
 #include <ctime>
 
@@ -47,6 +48,7 @@ static uint16_t s_ep_temperature = EP_INVALID;
 static uint16_t s_ep_humidity = EP_INVALID;
 
 static EventGroupHandle_t s_events = nullptr;
+static purifier::Model s_model = purifier::Model::Unknown;
 
 // Connectivity, mirrored to the purifier link for the MCU's Wi-Fi LED.
 // Written on the CHIP task only.
@@ -173,13 +175,13 @@ static void warn_status(const char *what, Status status)
 
 // ── Purifier → Matter (CHIP task) ─────────────────────────────────────────────
 
-static void refresh_fan(const purifier::State &state)
+static void refresh_fan(const purifier::Profile &profile, const purifier::State &state)
 {
     FanControlCluster *fan = fan_cluster();
     if (!fan)
         return;
 
-    auto view = purifier::fan_view(state);
+    auto view = purifier::fan_view(profile, state);
     s_applying_purifier_state = true;
     if (view)
     {
@@ -212,7 +214,7 @@ static void refresh_fan(const purifier::State &state)
             wind.Set(FanControl::WindBitmap::kSleepWind);
         warn_status("WindSetting", fan->SetWindSetting(wind));
     }
-    uint8_t pct = purifier::percent_current(state);
+    uint8_t pct = purifier::percent_current(profile, state);
     fan->SetPercentCurrent(pct);
     fan->SetSpeedCurrent(purifier::speed_current(pct));
     s_applying_purifier_state = false;
@@ -235,13 +237,14 @@ static void refresh_filter(const purifier::State &state)
     }
 }
 
-static void refresh_air_quality(const purifier::State &state)
+static void refresh_air_quality(const purifier::Profile &profile, const purifier::State &state)
 {
-    if (state.aqi_state)
-    {
-        if (auto *aq = find_cluster<AirQualityCluster>(s_ep_air_quality, AirQuality::Id))
-            warn_status("AirQuality", aq->SetAirQuality(static_cast<AirQuality::AirQualityEnum>(purifier::air_quality(*state.aqi_state))));
-    }
+    // The 3H reports its own level; the 3C's is derived from PM2.5.
+    auto level = purifier::air_quality(profile, state);
+    if (!level)
+        return;
+    if (auto *aq = find_cluster<AirQualityCluster>(s_ep_air_quality, AirQuality::Id))
+        warn_status("AirQuality", aq->SetAirQuality(static_cast<AirQuality::AirQualityEnum>(*level)));
 }
 
 static void refresh_pm25(const purifier::State &state)
@@ -284,16 +287,17 @@ static void refresh_humidity(const purifier::State &state)
 static void refresh_pending(intptr_t)
 {
     uint32_t changed = s_pending_changes.exchange(0);
-    if (!changed)
+    const purifier::Profile *profile = purifier_link_profile();
+    if (!changed || !profile)
         return;
     const purifier::State state = purifier_link_state();
 
     if (changed & purifier::CHANGED_FAN)
-        refresh_fan(state);
+        refresh_fan(*profile, state);
     if (changed & purifier::CHANGED_FILTER)
         refresh_filter(state);
     if (changed & purifier::CHANGED_AIR_QUALITY)
-        refresh_air_quality(state);
+        refresh_air_quality(*profile, state);
     if (changed & purifier::CHANGED_PM25)
         refresh_pm25(state);
     if (changed & purifier::CHANGED_TEMPERATURE)
@@ -400,7 +404,7 @@ static void set_node_label()
     // Same approach as the plant monitor: sets the initial value only, a name
     // given in the controller is kept.
     char label[33] = {};
-    strncpy(label, NODE_LABEL, sizeof(label) - 1);
+    snprintf(label, sizeof(label), "%s %s", NODE_LABEL, purifier::model_name(s_model));
     esp_matter_attr_val_t val = esp_matter_char_str(label, static_cast<uint16_t>(strlen(label)));
     esp_matter::attribute::set_val(attr, &val);
 }
@@ -578,7 +582,7 @@ static esp_err_t create_air_quality_endpoint(esp_matter::node_t *node)
     return ESP_OK;
 }
 
-static esp_err_t create_endpoints(esp_matter::node_t *node)
+static esp_err_t create_endpoints(esp_matter::node_t *node, const purifier::Profile &profile)
 {
     using namespace esp_matter;
 
@@ -592,6 +596,7 @@ static esp_err_t create_endpoints(esp_matter::node_t *node)
         ESP_LOGE(TAG, "air quality endpoint failed");
         return ESP_FAIL;
     }
+    if (profile.temperature)
     {
         endpoint::temperature_sensor::config_t cfg;
         cfg.temperature_measurement.min_measured_value = nullable<int16_t>(TEMP_MIN_CENTI_C);
@@ -601,6 +606,7 @@ static esp_err_t create_endpoints(esp_matter::node_t *node)
             return ESP_FAIL;
         s_ep_temperature = endpoint::get_id(ep);
     }
+    if (profile.humidity)
     {
         endpoint::humidity_sensor::config_t cfg;
         cfg.relative_humidity_measurement.min_measured_value = nullable<uint16_t>(HUMIDITY_MIN_CPCT);
@@ -611,16 +617,17 @@ static esp_err_t create_endpoints(esp_matter::node_t *node)
         s_ep_humidity = endpoint::get_id(ep);
     }
 
-    ESP_LOGI(TAG, "Endpoints: purifier=%u air_quality=%u temperature=%u humidity=%u", s_ep_purifier, s_ep_air_quality,
-             s_ep_temperature, s_ep_humidity);
+    ESP_LOGI(TAG, "Mi Air Purifier %s endpoints: purifier=%u air_quality=%u temperature=%u humidity=%u",
+             purifier::model_name(profile.model), s_ep_purifier, s_ep_air_quality, s_ep_temperature, s_ep_humidity);
     return ESP_OK;
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-void matter_setup(EventGroupHandle_t events)
+void matter_setup(EventGroupHandle_t events, purifier::Model model)
 {
     s_events = events;
+    s_model = model;
 
     esp_matter::node::config_t node_cfg;
     esp_matter::node_t *node = esp_matter::node::create(&node_cfg, attr_update_cb, identify_cb);
@@ -629,7 +636,7 @@ void matter_setup(EventGroupHandle_t events)
         ESP_LOGE(TAG, "node::create failed — restarting");
         esp_restart();
     }
-    if (create_endpoints(node) != ESP_OK)
+    if (create_endpoints(node, purifier::profile(model)) != ESP_OK)
     {
         ESP_LOGE(TAG, "endpoint creation failed — restarting");
         esp_restart();

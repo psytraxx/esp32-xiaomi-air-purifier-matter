@@ -67,6 +67,8 @@ public:
         std::function<void(uint16_t siid, uint16_t eiid, const std::vector<PropertyUpdate> &)> on_event;
         // The user asked for a network reset on the device itself.
         std::function<void()> on_restore;
+        // The MCU announced its model (`model zhimi.airpurifier.mb3`).
+        std::function<void(const std::string &)> on_model;
         // Reply for `net`.
         std::function<NetState()> net_state;
         // Reply for `time` / `time posix`. Return "0" while the clock is unset.

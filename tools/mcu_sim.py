@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Simulate the Mi Air Purifier 3H's STM32 on a serial port.
+"""Simulate the STM32 of a Mi Air Purifier 3H or 3C on a serial port.
 
 Lets the firmware run on any ESP32 dev board without opening the purifier:
 connect a USB-UART adapter to the board's MCU-link pins (GPIO16 = ESP32 RX,
 GPIO17 = ESP32 TX, plus GND) and run
 
-    python3 tools/mcu_sim.py --port /dev/ttyUSB1
+    python3 tools/mcu_sim.py --port /dev/ttyUSB1              # a 3H
+    python3 tools/mcu_sim.py --port /dev/ttyUSB1 --model mb4  # a 3C
 
 The simulator behaves like the real MCU as far as the protocol goes:
   - it is the master: it polls `get_down` every 200 ms and answers every
@@ -18,17 +19,17 @@ The simulator behaves like the real MCU as far as the protocol goes:
 
 Type commands on stdin while it runs to play the user at the device:
   power        toggle power (as the physical button would)
-  mode N       0 auto, 1 sleep, 2 favorite, 3 manual
-  level N      manual fan level 1-3
-  fav N        favorite level 0-14
+  mode N       0 auto, 1 sleep, 2 favorite, 3 manual (3H only)
+  level N      manual fan level 1-3 (3H)
+  fav N        favorite level 0-14 (3H) or favorite rpm 300-2200 (3C)
   pm N         set PM2.5 (µg/m³)
   filter N     set filter life (%)
   restore      send `restore` (network reset)
   state        print the simulated state
   quit
 
-This models the protocol from Xiaomi's MIoT serial spec and the 3H property
-table in main/purifier_model.h. It is not a capture of the real MCU — replace
+This models the protocol from Xiaomi's MIoT serial spec and the property
+tables in main/purifier_model.cpp. It is not a capture of the real MCU — replace
 the timings and replies with what the Phase 0 capture shows where they differ.
 
 Requires pyserial (`pip install pyserial`).
@@ -46,28 +47,58 @@ try:
 except ImportError:  # pragma: no cover - only hit without pyserial
     serial = None
 
-# (siid, piid) → initial value; mirrors main/purifier_model.h.
-PROPS = {
-    (2, 1): 0,        # fault
-    (2, 2): True,     # power
-    (2, 4): 1,        # fan level (manual)
-    (2, 5): 0,        # mode
-    (3, 6): 8,        # PM2.5
-    (3, 7): 45,       # humidity %
-    (3, 8): 21.5,     # temperature °C
-    (4, 3): 87,       # filter life %
-    (4, 5): 420,      # filter hours used
-    (5, 1): True,     # buzzer
-    (6, 1): 0,        # brightness
-    (7, 1): False,    # child lock
-    (10, 8): 700,     # motor rpm
-    (10, 10): 5,      # favorite level
-    (12, 1): 123456,  # use time s
-    (13, 1): 9999,    # purified volume
-    (13, 2): 10,      # average AQI
-    (13, 8): 0,       # AQI state
-    (13, 9): 0,       # heartbeat
-    (15, 5): False,   # filter door open
+# Per-model property tables; mirror main/purifier_model.cpp.
+MODELS = {
+    "mb3": {
+        "name": "zhimi.airpurifier.mb3",
+        "props": {
+            (2, 1): 0,        # fault
+            (2, 2): True,     # power
+            (2, 4): 1,        # fan level (manual)
+            (2, 5): 0,        # mode: 0 auto, 1 sleep, 2 favorite, 3 manual
+            (3, 6): 8,        # PM2.5
+            (3, 7): 45,       # humidity %
+            (3, 8): 21.5,     # temperature °C
+            (4, 3): 87,       # filter life %
+            (4, 5): 420,      # filter hours used
+            (5, 1): True,     # buzzer
+            (6, 1): 0,        # brightness
+            (7, 1): False,    # child lock
+            (10, 8): 700,     # motor rpm
+            (10, 10): 5,      # favorite level 0-14
+            (12, 1): 123456,  # use time s
+            (13, 1): 9999,    # purified volume
+            (13, 2): 10,      # average AQI
+            (13, 8): 0,       # AQI state
+            (13, 9): 0,       # heartbeat
+            (15, 5): False,   # filter door open
+        },
+        "power": (2, 2), "mode": (2, 5), "level": (2, 4), "fav": (10, 10),
+        "rpm": (10, 8), "pm": (3, 6), "aqi": (13, 8), "temp": (3, 8),
+        "filter": (4, 3), "filter_hours": (4, 5), "modes": (0, 1, 2, 3),
+        "fav_range": (0, 14), "rpm_max": 2300,
+    },
+    "mb4": {
+        "name": "zhimi.airp.mb4a",
+        "props": {
+            (2, 1): True,     # power
+            (2, 2): 0,        # fault
+            (2, 4): 0,        # mode: 0 auto, 1 sleep, 2 favorite
+            (3, 4): 8,        # PM2.5
+            (4, 1): 87,       # filter life %
+            (4, 3): 420,      # filter hours used
+            (6, 1): True,     # buzzer
+            (7, 2): 8,        # brightness 0-8
+            (8, 1): False,    # child lock
+            (9, 1): 700,      # motor rpm
+            (9, 3): 1000,     # favorite rpm 300-2200, steps of 10
+            (9, 4): 0,        # heartbeat
+        },
+        "power": (2, 1), "mode": (2, 4), "level": None, "fav": (9, 3),
+        "rpm": (9, 1), "pm": (3, 4), "aqi": None, "temp": None,
+        "filter": (4, 1), "filter_hours": (4, 3), "modes": (0, 1, 2),
+        "fav_range": (300, 2200), "rpm_max": 2200,
+    },
 }
 
 MANUAL_RPM = {1: 700, 2: 1300, 3: 2100}
@@ -101,10 +132,14 @@ def parse_value(tok):
 
 
 class Purifier:
-    def __init__(self):
-        self.p = dict(PROPS)
+    def __init__(self, model):
+        self.m = MODELS[model]
+        self.p = dict(self.m["props"])
         self.lock = threading.Lock()
         self.changed = []  # (siid, piid) waiting to be reported
+
+    def k(self, name):
+        return self.m[name]
 
     def set(self, key, value, report=True):
         if key not in self.p:
@@ -112,11 +147,12 @@ class Purifier:
         old = self.p[key]
         if isinstance(old, bool) and not isinstance(value, bool):
             return -4005  # wrong type
-        if key == (2, 5) and value not in (0, 1, 2, 3):
+        if key == self.k("mode") and value not in self.k("modes"):
             return -4005
-        if key == (2, 4) and value not in (1, 2, 3):
+        if key == self.k("level") and value not in (1, 2, 3):
             return -4005
-        if key == (10, 10) and not (0 <= value <= 14):
+        lo, hi = self.k("fav_range")
+        if key == self.k("fav") and not (lo <= value <= hi):
             return -4005
         self.p[key] = value
         self._follow_fan()
@@ -125,36 +161,48 @@ class Purifier:
         return 0
 
     def _follow_fan(self):
-        on, mode = self.p[(2, 2)], self.p[(2, 5)]
+        on, mode = self.p[self.k("power")], self.p[self.k("mode")]
+        fav = self.p[self.k("fav")]
         if not on:
             rpm = 0
         elif mode == 1:
             rpm = 400
         elif mode == 2:
-            rpm = 300 + self.p[(10, 10)] * 2000 // 14
+            rpm = fav if self.k("level") is None else 300 + fav * 2000 // 14
         elif mode == 3:
-            rpm = MANUAL_RPM[self.p[(2, 4)]]
+            rpm = MANUAL_RPM[self.p[self.k("level")]]
         else:
-            rpm = 500 + self.p[(3, 6)] * 15
-        rpm = min(rpm, 2300)
-        if rpm != self.p[(10, 8)]:
-            self.p[(10, 8)] = rpm
-            self.changed.append((10, 8))
+            rpm = 500 + self.p[self.k("pm")] * 15
+        rpm = min(rpm, self.k("rpm_max"))
+        if rpm != self.p[self.k("rpm")]:
+            self.p[self.k("rpm")] = rpm
+            self.changed.append(self.k("rpm"))
+
+    def reset_filter(self):
+        self.p[self.k("filter")] = 100
+        self.p[self.k("filter_hours")] = 0
+        self.changed += [self.k("filter"), self.k("filter_hours")]
 
     def drift(self):
-        pm = max(0, self.p[(3, 6)] + random.choice((-2, -1, 0, 0, 1, 2)))
-        self.p[(3, 6)] = pm
-        self.p[(13, 8)] = 0 if pm < 13 else 1 if pm < 36 else 2 if pm < 56 else 3 if pm < 151 else 4 if pm < 251 else 5
-        self.p[(3, 8)] = round(self.p[(3, 8)] + random.choice((-0.1, 0, 0.1)), 1)
-        self.changed += [(3, 6), (13, 8), (3, 8)]
+        pm_key = self.k("pm")
+        pm = max(0, self.p[pm_key] + random.choice((-2, -1, 0, 0, 1, 2)))
+        self.p[pm_key] = pm
+        self.changed.append(pm_key)
+        if self.k("aqi"):
+            self.p[self.k("aqi")] = 0 if pm < 13 else 1 if pm < 36 else 2 if pm < 56 else 3 if pm < 151 else 4 if pm < 251 else 5
+            self.changed.append(self.k("aqi"))
+        if self.k("temp"):
+            self.p[self.k("temp")] = round(self.p[self.k("temp")] + random.choice((-0.1, 0, 0.1)), 1)
+            self.changed.append(self.k("temp"))
         self._follow_fan()
 
 
 class Simulator:
-    def __init__(self, port, verbose):
+    def __init__(self, port, verbose, model, announce=True):
         self.port = port
         self.verbose = verbose
-        self.dev = Purifier()
+        self.dev = Purifier(model)
+        self.announce = announce
         self.out_queue = []  # MCU-initiated commands waiting to be sent
         self.running = True
 
@@ -206,9 +254,7 @@ class Simulator:
             elif cmd == "action":
                 siid, aiid = int(args[0]), int(args[1])
                 if (siid, aiid) == (4, 1):
-                    self.dev.p[(4, 3)] = 100
-                    self.dev.p[(4, 5)] = 0
-                    self.dev.changed += [(4, 3), (4, 5)]
+                    self.dev.reset_filter()
                 self.out_queue.insert(0, f"result {siid} {aiid} 0")
             elif cmd == "MIIO_mcu_version_req":
                 self.out_queue.insert(0, "mcu_version 0001")
@@ -217,7 +263,8 @@ class Simulator:
 
     def run(self):
         threading.Thread(target=self.console, daemon=True).start()
-        self.transact("model zhimi.airpurifier.mb3")
+        if self.announce:
+            self.transact("model " + self.dev.m["name"])
         self.transact("mcu_version 0001")
         last_net = last_time = last_drift = 0.0
         while self.running:
@@ -254,18 +301,19 @@ class Simulator:
                 continue
             cmd, arg = words[0], (int(words[1]) if len(words) > 1 and words[1].lstrip("-").isdigit() else None)
             with self.dev.lock:
+                d = self.dev
                 if cmd == "power":
-                    self.dev.set((2, 2), not self.dev.p[(2, 2)])
+                    d.set(d.k("power"), not d.p[d.k("power")])
                 elif cmd == "mode" and arg is not None:
-                    self.dev.set((2, 5), arg)
-                elif cmd == "level" and arg is not None:
-                    self.dev.set((2, 4), arg)
+                    print("rejected" if d.set(d.k("mode"), arg) else "ok")
+                elif cmd == "level" and arg is not None and d.k("level"):
+                    print("rejected" if d.set(d.k("level"), arg) else "ok")
                 elif cmd == "fav" and arg is not None:
-                    self.dev.set((10, 10), arg)
+                    print("rejected" if d.set(d.k("fav"), arg) else "ok")
                 elif cmd == "pm" and arg is not None:
-                    self.dev.set((3, 6), arg)
+                    d.set(d.k("pm"), arg)
                 elif cmd == "filter" and arg is not None:
-                    self.dev.set((4, 3), arg)
+                    d.set(d.k("filter"), arg)
                 elif cmd == "restore":
                     self.out_queue.append("restore")
                 elif cmd == "state":
@@ -282,13 +330,17 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--port", required=True, help="serial port wired to the ESP32's MCU-link pins")
     ap.add_argument("--baud", type=int, default=115200)
+    ap.add_argument("--model", choices=sorted(MODELS), default="mb3", help="mb3 = 3H (default), mb4 = 3C")
+    ap.add_argument("--silent-model", action="store_true",
+                    help="don't announce the model at start, as when the ESP32 restarts on its own; "
+                         "the firmware then has to tell the model from its probe")
     ap.add_argument("-v", "--verbose", action="store_true", help="also log idle get_down / down none")
     args = ap.parse_args()
     if serial is None:
         sys.exit("pyserial is required: pip install pyserial")
     port = serial.Serial(args.port, args.baud, timeout=0.05)
     try:
-        Simulator(port, args.verbose).run()
+        Simulator(port, args.verbose, args.model, not args.silent_model).run()
     except KeyboardInterrupt:
         pass
 

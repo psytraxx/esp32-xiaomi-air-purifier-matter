@@ -37,6 +37,7 @@ Phases 1 and 2 don't need the purifier and run in parallel with Phase 0.
 | D3 | Matter OTA updates | **Decide later.** Data is in: the first CI build is 1.39 MB, and two OTA slots of 1.875 MB (esp-matter's own 4 MB layout) would leave ~480 KB headroom each. Single-app layout until decided. |
 | D4 | Pairing code | **Per build, like the plant monitor**: discriminator, passcode and SPAKE2+ verifier in `main/chip_project_config.h`, generated with `tools/spake2p_verifier.py`. |
 | D5 | License | Open |
+| D6 | Mi Air Purifier 3C | **Same firmware image as the 3H.** One property table per model; the model is announced by the MCU or told apart by a probe, remembered in NVS, and can be forced at build time. Endpoints 1–2 are identical on both; temperature/humidity (3–4) exist on the 3H only. See [3C mapping](#mi-air-purifier-3c). |
 
 ## Feature → Matter cluster mapping
 
@@ -54,10 +55,11 @@ flowchart TB
 
 Endpoint IDs are append-only: new endpoints go at the end.
 
-### Purifier features
+### Purifier features (3H)
 
 MIoT IDs are `siid.piid` from the
 [`zhimi.airpurifier.mb3` spec](https://home.miot-spec.com/spec/zhimi.airpurifier.mb3).
+The 3C's are in [Mi Air Purifier 3C](#mi-air-purifier-3c) below.
 
 | Purifier feature | MIoT | Endpoint | Matter cluster | Attribute / command |
 |---|---|---|---|---|
@@ -142,9 +144,50 @@ To verify on hardware:
 - The 10 % filter warning threshold, which should match the purifier's own display.
 - Whether the MCU accepts mode and level in one `set_properties` line or needs separate ones.
 
+### Mi Air Purifier 3C
+
+Same module, pins and protocol as the 3H; different property IDs and a
+simpler fan. IDs from the
+[`zhimi.airp.mb4a` spec](https://home.miot-spec.com/spec/zhimi.airp.mb4a),
+cross-checked against python-miio and esphome-miot
+([3C wiki](https://github.com/dhewg/esphome-miot/wiki/Xiaomi-Mi-Air-Purifier-3C)).
+
+| Purifier feature | 3C MIoT | 3H MIoT | Matter |
+|---|---|---|---|
+| Power | 2.1 | 2.2 | Fan Control `FanMode` Off ↔ off |
+| Mode | 2.4 (0 Auto, 1 Sleep, 2 Favorite) | 2.5 (+ 3 Manual) | Fan Control `FanMode` / `WindSetting` |
+| Fan speed | favorite rpm 9.3 (300–2200, steps of 10) | fan level 2.4, favorite level 10.10 | Fan Control speed / percent |
+| Motor rpm | 9.1 | 10.8 | `PercentCurrent` / `SpeedCurrent` |
+| PM2.5 | 3.4 | 3.6 | PM2.5 Concentration Measurement |
+| Air-quality level | — (derived from PM2.5) | 13.8 | Air Quality |
+| Temperature / humidity | — | 3.8 / 3.7 | endpoints 3 / 4 (3H only) |
+| Filter life / hours | 4.1 / 4.3 | 4.3 / 4.5 | HEPA Filter Monitoring |
+| Reset filter | action 4.1 `3 0` | action 4.1 `3 0` | `ResetCondition` |
+| Fault | 2.2 | 2.1 | logged |
+| Heartbeat | 9.4 | 13.9 | — |
+| Model probe | answers 9.1 | answers 10.8 | — |
+
+Fan behaviour on the 3C (it has no manual levels):
+
+| Controller writes | Sent to the 3C |
+|---|---|
+| `FanMode` Off / Auto, `WindSetting` SleepWind | as on the 3H, with the 3C's IDs |
+| `FanMode` Low / Medium / High | Favorite mode at 800 / 1400 / 2200 rpm (presets, to tune) |
+| `SpeedSetting` n (1–14) | Favorite mode at 300 + (n−1)·1900/14 rpm, rounded to 10 (300, 440, 570 … 2060) |
+| `SpeedSetting` 15 | same as High (2200 rpm) |
+
+Reported back: a favorite rpm equal to a preset shows as that FanMode;
+any other rpm shows as the nearest speed. The 3C's air-quality level uses
+the US EPA PM2.5 breakpoints: ≤12 Good, ≤35.4 Fair, ≤55.4 Moderate,
+≤150.4 Poor, ≤250.4 VeryPoor, above that ExtremelyPoor (µg/m³).
+
+To verify on a 3C: that mode 2 is Favorite, the accepted rpm range (some units
+reject above 2200), the heartbeat 9.4, whether the MCU announces its model on
+its own, and comfortable Low/Medium/High presets.
+
 ## Phases
 
-### Phase 0: Hardware recon (needs the purifier)
+### Phase 0: Hardware recon (needs the purifier; repeat on a 3C)
 
 1. Back up the flash as described in the README: `chip-id`, `flash-id`,
    `espefuse summary`, two `read-flash` dumps with matching SHA-256, then

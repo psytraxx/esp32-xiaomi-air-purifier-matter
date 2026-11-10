@@ -1,4 +1,4 @@
-# Mi Air Purifier 3H Matter firmware — classic ESP32 (ESP-WROOM-32D), Matter
+# Mi Air Purifier 3H/3C Matter firmware — classic ESP32 (ESP-WROOM-32D), Matter
 # over Wi-Fi, BLE for commissioning only. Based on esp-matter's light example
 # (examples/light/sdkconfig.defaults, the esp32 Wi-Fi reference) plus the
 # conventions of esp32-homecontrol-matter.
@@ -45,7 +45,7 @@ CONFIG_DEFAULT_DEVICE_HARDWARE_VERSION=1
 # Air Purifier device type (0x002D), advertised during commissioning.
 CONFIG_DEVICE_TYPE=45
 CONFIG_ENABLE_COMMISSIONABLE_DEVICE_TYPE=y
-CONFIG_USE_TEST_SERIAL_NUMBER="PURIFIER3H-0001"
+CONFIG_USE_TEST_SERIAL_NUMBER="MIPURIFIER-0001"
 
 # Root node + 4 endpoints in use; room for a couple more (append only).
 CONFIG_ESP_MATTER_MAX_DYNAMIC_ENDPOINT_COUNT=6

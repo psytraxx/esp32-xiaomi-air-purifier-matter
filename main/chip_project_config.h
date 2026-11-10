@@ -42,5 +42,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #define CHIP_DEVICE_CONFIG_DEVICE_VENDOR_NAME "psytraxx"
-#define CHIP_DEVICE_CONFIG_DEVICE_PRODUCT_NAME "Mi Air Purifier 3H (Matter)"
-#define CHIP_DEVICE_CONFIG_DEFAULT_DEVICE_HARDWARE_VERSION_STRING "zhimi.airpurifier.mb3"
+#define CHIP_DEVICE_CONFIG_DEVICE_PRODUCT_NAME "Mi Air Purifier 3H/3C (Matter)"
+#define CHIP_DEVICE_CONFIG_DEFAULT_DEVICE_HARDWARE_VERSION_STRING "ESP-WROOM-32D"
