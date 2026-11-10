@@ -18,15 +18,14 @@ cloud. No extra hardware or soldering is required.
 ## Contents
 
 - [How it works](#how-it-works)
-- [Supported devices](#supported-devices)
 - [Hardware](#hardware)
 - [MCU ↔ ESP32 serial protocol](#mcu--esp32-serial-protocol)
 - [Matter data model](#matter-data-model)
 - [Software stack](#software-stack)
-- [Flashing](#flashing)
+- [Backup, flashing and restore](#backup-flashing-and-restore)
 - [Building](#building)
 - [Roadmap](#roadmap)
-- [Credits and prior work](#credits-and-prior-work)
+- [Credits and references](#credits-and-references)
 - [Disclaimer](#disclaimer)
 
 ---
@@ -35,21 +34,24 @@ cloud. No extra hardware or soldering is required.
 
 The 3H contains two microcontrollers:
 
-```
-                    ┌──────────────────────────────────────────┐
-                    │           Mi Air Purifier 3H             │
-                    │                                          │
- Matter controller  │  ┌──────────────┐  UART   ┌───────────┐  │
- (Wi-Fi, BLE for ◄──┼─►│ ESP32        │ 115200  │ STM32F412 │──┼─► fan motor, PM2.5,
-  commissioning)    │  │ (this fw)    │◄───────►│ (stock fw)│  │   temp/humidity,
-                    │  │ ESP-WROOM-32D│  8N1    │           │  │   display, buttons,
-                    │  └──────────────┘         └───────────┘  │   buzzer, filter RFID
-                    └──────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    ctrl["Matter controller<br/>(Home Assistant, Apple Home, …)"]
+
+    subgraph purifier["Mi Air Purifier 3H"]
+        esp["ESP32 module<br/>ESP-WROOM-32D<br/><b>this firmware</b>"]
+        mcu["STM32F412<br/><i>stock Xiaomi firmware</i>"]
+        hw["Fan motor · PM2.5 sensor<br/>Temp/humidity · Display<br/>Buttons · Buzzer · Filter RFID"]
+    end
+
+    ctrl <-->|"Matter over Wi-Fi<br/>(BLE for commissioning)"| esp
+    esp <-->|"UART 115200 8N1<br/>MIoT text protocol"| mcu
+    mcu --> hw
 ```
 
 - The **STM32F412** runs Xiaomi's stock firmware and does all the real work:
-  motor control, sensors, display, buttons, buzzer and filter RFID. We do
-  not touch it.
+  motor control, sensors, display, buttons, buzzer and filter RFID. We
+  **never touch it**.
 - The **ESP32** is only a network gateway. Stock, it bridges the MCU to the
   Xiaomi cloud using the text-based *MIoT serial protocol*. This project
   replaces that firmware with one that speaks the same serial protocol to
@@ -58,37 +60,30 @@ The 3H contains two microcontrollers:
 Because the MCU keeps its stock firmware, fan control, safety logic and the
 physical buttons behave exactly as before.
 
-## Supported devices
-
-| Device | Model ID | Status |
-|---|---|---|
-| Mi Air Purifier 3 / 3H | `zhimi.airpurifier.mb3` | Target, in development |
-
-Other MIoT purifiers with an ESP32 gateway and a separate MCU (3C, 4,
-4 Lite, Pro H, …) use the same protocol with different property IDs, and
-could be added later. The following are **not** supported:
-
-- Devices with a proprietary Xiaomi Wi-Fi chip, e.g. 2S/2H (`MHCW02P`).
-- Devices using the legacy miIO protocol, e.g. the original Air Purifier 2.
-
-See the [esphome-miot unsupported list](https://github.com/dhewg/esphome-miot#unsupported-devices)
-for details.
+Only the 3H (`zhimi.airpurifier.mb3`) is in scope. Other Xiaomi purifiers
+with an ESP32 gateway and a separate MCU use the same protocol with different
+property IDs, and could be added later through a per-model property table.
 
 ## Hardware
 
 | Item | Detail |
 |---|---|
-| Gateway module | Espressif **ESP-WROOM-32D** (classic ESP32, Wi-Fi + BLE 4.2, no 802.15.4) |
+| Gateway module | Espressif **ESP-WROOM-32D** (classic ESP32, Wi-Fi + BLE 4.2, no 802.15.4 radio) |
 | Main MCU | **STM32F412** |
 | MCU link | ESP32 `GPIO17` = TX, `GPIO16` = RX, 115200 baud, 8N1 |
 | Flash header | `3.3V`, `GND`, `TX`, `RX`, with a `GPIO0` / `GND` pin pair right above it |
-| MAC address | Xiaomi writes a custom MAC into eFuse. Builds must ignore the custom-MAC / CRC eFuse checks (`ignore_efuse_custom_mac`, `ignore_efuse_mac_crc` in esphome-miot). |
-| Cores | esphome-miot builds with `CONFIG_FREERTOS_UNICORE=y`. Confirm single- vs dual-core on your unit with `esptool.py chip_id`. |
-| Flash size | Expected 4 MB. **To verify** with `esptool.py flash_id` before choosing a partition table. |
+| MAC address | Xiaomi writes its own MAC into eFuse, and the MAC CRC is reported not to validate (to verify) |
+| Cores | Reported as possibly running single-core. Check with `esptool chip-id`. |
+| Flash size | Expected 4 MB. Check with `esptool flash-id`. |
 
-Disassembly: see the
-[esphome-miot 3H wiki](https://github.com/dhewg/esphome-miot/wiki/Xiaomi-Mi-Air-Purifier-3H)
-and the linked disassembly video.
+These values come from community reverse engineering (see
+[Credits](#credits-and-references)). We'll confirm every row on our own unit
+during the backup step.
+
+Disassembly is the same as for the other Xiaomi tower purifiers: remove the
+filter, undo the screws inside the filter compartment and at the top, then
+lift off the top cover to reach the controller board. There's a
+[3H disassembly video](https://www.youtube.com/watch?v=_rC2a6l0M2k).
 
 ## MCU ↔ ESP32 serial protocol
 
@@ -98,24 +93,36 @@ copy of the [official spec](https://github.com/blakadder/miot).
 - ASCII text commands; tokens are separated by spaces and each line ends with `\r` (0x0D).
 - Maximum line length is 512 bytes.
 - **The MCU is the master.** It polls the module with `get_down` every
-  100–200 ms. The module answers each line it receives.
+  100–200 ms. The module answers each line it receives and never speaks
+  first.
 
-Typical exchange (`↑` MCU → ESP32, `↓` ESP32 → MCU):
+```mermaid
+sequenceDiagram
+    participant C as Matter controller
+    participant E as ESP32 (this firmware)
+    participant M as STM32 (stock)
 
-```
-↑ get_down
-↓ down none                              # nothing queued
+    Note over M,E: Idle polling, every 100–200 ms
+    M->>E: get_down
+    E-->>M: down none
 
-↑ get_down
-↓ down set_properties 2 2 true           # e.g. user turned power on via Matter
-↑ result 2 2 0                           # siid piid code (0 = success)
-↓ ok
+    Note over C,M: User turns the purifier on via Matter
+    C->>E: OnOff / FanMode write
+    E->>E: queue "set_properties 2 2 true"
+    M->>E: get_down
+    E-->>M: down set_properties 2 2 true
+    M->>E: result 2 2 0
+    E-->>M: ok
+    E->>C: attribute report
 
-↑ properties_changed 3 6 12              # PM2.5 changed to 12 µg/m³
-↓ ok
+    Note over M,C: Sensor changes are pushed by the MCU
+    M->>E: properties_changed 3 6 12
+    E-->>M: ok
+    E->>C: PM2.5 = 12 µg/m³
 
-↑ net
-↓ cloud                                  # one of: offline | unprov | uap | local | cloud
+    Note over M,E: Network status drives the Wi-Fi LED
+    M->>E: net
+    E-->>M: cloud
 ```
 
 Commands the module must handle:
@@ -135,28 +142,24 @@ Commands the module must handle:
 | `restore` | Factory reset request | `ok` |
 | anything else | Unknown | `error` |
 
-esphome-miot also writes a periodic **heartbeat** to property `13.9`. We
-replicate that.
-
-[`components/miot/miot.cpp` in esphome-miot](https://github.com/dhewg/esphome-miot/blob/main/components/miot/miot.cpp)
-is a complete, field-tested reference implementation.
+The stock gateway is reported to write a periodic heartbeat to property
+`13.9`. We'll confirm this from a UART capture of the stock firmware before
+relying on it.
 
 ## Matter data model
 
-Property IDs come from the
-[MIoT spec for `zhimi.airpurifier.mb3`](https://home.miot-spec.com/spec/zhimi.airpurifier.mb3)
-and the
-[esphome-miot 3H config](https://github.com/dhewg/esphome-miot/blob/main/config/zhimi.airpurifier.mb3.yaml).
+Property IDs come from Xiaomi's published
+[MIoT spec for `zhimi.airpurifier.mb3`](https://home.miot-spec.com/spec/zhimi.airpurifier.mb3).
 
-### Endpoints
-
-| Endpoint | Matter device type | Clusters |
-|---|---|---|
-| 0 | Root Node | Basic Information, Network Commissioning, … |
-| 1 | **Air Purifier** (`0x002D`) | Identify, On/Off, **Fan Control**, **HEPA Filter Monitoring** |
-| 2 | **Air Quality Sensor** (`0x002C`) | Air Quality, PM2.5 Concentration Measurement |
-| 3 | Temperature Sensor (`0x0302`) | Temperature Measurement |
-| 4 | Humidity Sensor (`0x0307`) | Relative Humidity Measurement |
+```mermaid
+flowchart TB
+    node["Matter node"]
+    node --> ep0["EP 0 · Root Node<br/>Basic Information, Network Commissioning, …"]
+    node --> ep1["EP 1 · Air Purifier (0x002D)<br/>Identify, On/Off, Fan Control,<br/>HEPA Filter Monitoring"]
+    node --> ep2["EP 2 · Air Quality Sensor (0x002C)<br/>Air Quality, PM2.5 Concentration"]
+    node --> ep3["EP 3 · Temperature Sensor (0x0302)"]
+    node --> ep4["EP 4 · Humidity Sensor (0x0307)"]
+```
 
 ### Property mapping
 
@@ -184,36 +187,6 @@ and the
 Properties without a standard Matter cluster could later be exposed as
 vendor-specific attributes, but most controllers ignore those.
 
-## Flashing
-
-> ⚠️ **Back up the original flash first.** The backup is the only way back to
-> stock firmware and Mi Home. It contains device-specific secrets (DID, keys,
-> token): keep it private and don't publish it.
-
-1. Unplug the purifier from mains and open it (see [Hardware](#hardware)).
-2. Connect a 3.3 V USB-UART adapter to the header: `3.3V`, `GND`, `TX`→`RX`,
-   `RX`→`TX`.
-3. Short the `GPIO0` and `GND` pins to enter the ROM bootloader.
-4. Power the board **from the UART adapter only**. Never connect mains at
-   the same time.
-5. Identify the chip and back up the flash:
-
-   ```bash
-   esptool.py --port /dev/ttyUSB0 chip_id
-   esptool.py --port /dev/ttyUSB0 flash_id
-   esptool.py --port /dev/ttyUSB0 read_flash 0 ALL stock_backup.bin
-   ```
-
-6. Flash this firmware with `idf.py -p /dev/ttyUSB0 flash` (see [Building](#building)).
-7. Remove the `GPIO0`–`GND` short, power-cycle, and commission the device
-   with the QR code / manual pairing code printed on the serial console.
-
-To restore stock firmware:
-
-```bash
-esptool.py --port /dev/ttyUSB0 write_flash 0 stock_backup.bin
-```
-
 ## Software stack
 
 Same stack as
@@ -222,27 +195,28 @@ so tooling, conventions and lessons learned carry over:
 
 | | |
 |---|---|
-| Language | C++ on **native ESP-IDF** (`app_main()`, no Arduino) |
+| Language | C++ on **native ESP-IDF** (`app_main()`, no Arduino, no ESPHome) |
 | ESP-IDF | **v6.1** (`idf: ">=6.1.0,<6.2.0"` in `main/idf_component.yml`) |
 | Matter | **`espressif/esp_matter` 1.6.x** managed component; endpoints built with the `esp_matter::endpoint::*::create()` C++ API |
 | Target | **`esp32`** (classic Xtensa). Install the toolchain with `./install.sh esp32`. |
 | Transport | **Matter over Wi-Fi**, BLE (NimBLE) for commissioning only. The classic ESP32 has no 802.15.4 radio, so Thread isn't possible and no Thread Border Router is needed. |
 | Power model | Mains powered and always on: no ICD, no deep sleep (unlike the plant monitor) |
-| Partitions | Custom 4 MB table, single factory app plus a Matter NVS partition. As in the plant monitor, two Matter app slots are unlikely to fit in 4 MB, so updates are by serial flash. |
+| Partitions | Custom 4 MB table, single factory app plus a Matter NVS partition. Two Matter app slots are unlikely to fit in 4 MB, so updates are by serial flash. |
 | Pairing code | Per-build discriminator, passcode and SPAKE2+ verifier in `main/chip_project_config.h`, generated with `tools/spake2p_verifier.py` |
 | Tests | Host-native [Unity](https://github.com/ThrowTheSwitch/Unity) tests in `test/` for the hardware-free logic: MIoT line parser, command queue, MIoT ↔ Matter value conversions |
 | CI | GitHub Actions: `espressif/esp-idf-ci-action` build (`-Werror`) for `esp32` plus the native test job |
 | Housekeeping | `CHANGELOG.md` (dated, plain language), `CLAUDE.md` agent guide, Renovate |
 
+The MIoT UART protocol handling is written from scratch against the Xiaomi
+spec. No ESPHome or ESPHome components are used.
+
 Board-specific differences from the plant monitor:
 
-- **Custom MAC in eFuse.** Xiaomi burns its own MAC into the module, and its
-  CRC doesn't validate, so the default MAC read fails. We need
-  `CONFIG_ESP_MAC_IGNORE_MAC_CRC_ERROR=y` (the equivalent of esphome-miot's
-  `ignore_efuse_mac_crc`). To verify on hardware.
-- **Possibly single core.** esphome-miot builds the 3H with
-  `CONFIG_FREERTOS_UNICORE=y`. Until `chip_id` proves the module is dual-core,
-  we do the same.
+- **Custom MAC in eFuse.** If the MAC CRC really doesn't validate, the
+  default MAC read fails and we need `CONFIG_ESP_MAC_IGNORE_MAC_CRC_ERROR=y`.
+  `espefuse summary` during the backup step will tell.
+- **Possibly single core.** Use `CONFIG_FREERTOS_UNICORE=y` until
+  `esptool chip-id` proves the module is dual-core.
 - **Code-driven clusters.** In esp_matter 1.6, measurement clusters such as
   Temperature and Relative Humidity are served by cluster objects.
   `attribute::update()` on them is silently ignored, so values have to be set
@@ -258,7 +232,7 @@ Board-specific differences from the plant monitor:
 main/
   app_main.cpp          boot sequence, main event loop
   app_config.h          tunables (poll/heartbeat intervals, timeouts)
-  board_pins.h          UART pins (TX GPIO17, RX GPIO16), BOOT/GPIO0
+  board_pins.h          UART pins (TX GPIO17, RX GPIO16)
   miot_uart.cpp/.h      UART driver: \r-framed lines, reply to MCU polls
   miot_protocol.h       pure parser/formatter for MIoT lines (unit-tested)
   miot_queue.h          pending down-command queue (unit-tested)
@@ -272,11 +246,173 @@ partitions_4mb.csv
 sdkconfig.defaults
 ```
 
+## Backup, flashing and restore
+
+> ⚠️ **Never skip the backup.** The full flash dump is the only way back to the
+> stock firmware and Mi Home. Xiaomi doesn't publish the firmware, and dumps
+> from other units won't work: each one carries device-specific identity and
+> keys.
+
+```mermaid
+flowchart TD
+    A["Open purifier, unplug mains"] --> B["Wire USB-UART to header<br/>short GPIO0–GND"]
+    B --> C["Identify chip<br/>chip-id · flash-id · espefuse summary"]
+    C --> D["Dump full flash<br/>twice"]
+    D --> E{"Both dumps<br/>identical?"}
+    E -- no --> B
+    E -- yes --> F["verify-flash against chip<br/>store backup safely"]
+    F --> G["Flash this firmware"]
+    G --> H{"Works?"}
+    H -- yes --> I["Commission via Matter"]
+    H -- no --> R["Restore: write-flash backup"]
+    R --> J["Stock firmware + Mi Home again"]
+```
+
+### What you need
+
+- A **3.3 V** USB-UART adapter (CP2102, CH340, FT232, …). **Never use 5 V**
+  on the header.
+- Four jumper wires, plus one more (or a jumper cap) for `GPIO0`–`GND`.
+- `esptool` and `espefuse`. Both ship with ESP-IDF; alternatively install
+  them with `pip install esptool`. The commands below use the esptool v5
+  syntax (`read-flash`); older v4 releases spell them with underscores
+  (`read_flash`).
+
+### 1. Connect and enter the bootloader
+
+1. Unplug the purifier from mains and open it (see [Hardware](#hardware)).
+2. Wire the header: adapter `GND`→`GND`, `3.3V`→`3.3V`, adapter `TX`→`RX`,
+   adapter `RX`→`TX`.
+3. Short `GPIO0` to `GND`. The pins sit right above the UART header.
+4. Plug the adapter into the computer. This powers the ESP32, which boots
+   into the ROM download mode.
+
+> ⚠️ Power the board **only from the UART adapter**. Never have mains
+> connected while the adapter is attached.
+
+### 2. Identify the chip and record the eFuses
+
+```bash
+esptool --port /dev/ttyUSB0 chip-id
+```
+
+```bash
+esptool --port /dev/ttyUSB0 flash-id
+```
+
+```bash
+espefuse --port /dev/ttyUSB0 summary > stock_efuse_summary.txt
+```
+
+Note the chip revision, single/dual core, flash size and the MAC address(es).
+
+`espefuse summary` is read-only. **Never run any `espefuse burn-*`
+command:** eFuses are one-time programmable and can't be restored. Flashing
+never touches the eFuses, so they need no backup, just this record.
+
+### 3. Dump the full flash, twice
+
+```bash
+esptool --port /dev/ttyUSB0 --baud 460800 read-flash 0 ALL stock_full_1.bin
+```
+
+```bash
+esptool --port /dev/ttyUSB0 --baud 460800 read-flash 0 ALL stock_full_2.bin
+```
+
+```bash
+sha256sum stock_full_1.bin stock_full_2.bin
+```
+
+The two hashes must match. If they don't, the connection is unreliable:
+lower the baud rate (e.g. `--baud 115200`), shorten the wires, and dump
+again. A 4 MB dump should be exactly 4,194,304 bytes.
+
+### 4. Verify the dump against the chip
+
+```bash
+esptool --port /dev/ttyUSB0 verify-flash 0 stock_full_1.bin
+```
+
+### 5. Optional: inspect the stock partition table
+
+The table lives at offset `0x8000`. Decoding it shows how Xiaomi laid out
+the flash (app slots, NVS, factory data):
+
+```bash
+dd if=stock_full_1.bin of=stock_partitions.bin bs=1 skip=$((0x8000)) count=$((0xC00))
+```
+
+```bash
+python "$IDF_PATH/components/partition_table/gen_esp32part.py" stock_partitions.bin
+```
+
+### 6. Store the backup safely
+
+Keep `stock_full_1.bin`, its SHA-256 hash and `stock_efuse_summary.txt`
+together, in at least two places (e.g. a local disk and a private cloud
+folder).
+
+> 🔒 **The dump is private.** It contains your Xiaomi device identity (DID,
+> keys, cloud token) and your home Wi-Fi credentials. Never commit it to a
+> repository, attach it to an issue or share it.
+
+### 7. Flash this firmware
+
+With the module still in bootloader mode (see [Building](#building)):
+
+```bash
+idf.py -p /dev/ttyUSB0 flash monitor
+```
+
+Then remove the `GPIO0`–`GND` short and power-cycle the board by unplugging
+and replugging the adapter. The serial log prints the Matter QR code and
+manual pairing code. Close the purifier, plug it into mains and commission
+it from your Matter controller.
+
+### Restore the stock firmware
+
+1. Open the purifier, wire the UART and short `GPIO0`–`GND` as in step 1.
+2. Write the backup back:
+
+   ```bash
+   esptool --port /dev/ttyUSB0 --baud 460800 write-flash 0 stock_full_1.bin
+   ```
+
+   ```bash
+   esptool --port /dev/ttyUSB0 verify-flash 0 stock_full_1.bin
+   ```
+
+3. Remove the short, power-cycle and reassemble. The module rejoins your
+   Wi-Fi with its old settings and shows up in Mi Home as before. If the
+   Wi-Fi password has changed since the backup, reset the network on the
+   purifier and pair it in Mi Home again.
+
+Writing a full image replaces everything, including the Matter fabrics, so
+the controller will show the purifier as unavailable. Remove it there.
+
+### Troubleshooting
+
+| Symptom | Likely cause / fix |
+|---|---|
+| `Failed to connect to ESP32: No serial data received` | TX/RX swapped, `GPIO0` not shorted *while powering on*, or wrong port. Swap TX/RX, re-short `GPIO0`, replug. |
+| Dumps differ between runs | Unreliable link: lower `--baud`, use shorter wires, try another adapter. |
+| Board resets or browns out (`brownout detector was triggered`) | The adapter's 3.3 V regulator can't supply Wi-Fi current peaks. Fine for flashing; for test runs use an adapter with a stronger 3.3 V rail. |
+| Our firmware boot-loops or won't commission | Capture the log with `idf.py monitor`, then restore the backup if needed. |
+| Purifier runs but its Wi-Fi LED blinks or shows an error | The MCU isn't getting the expected `net` reply. This is a firmware bug: restore the backup and report it. |
+| Worried the module is bricked | The ESP32's ROM bootloader is in mask ROM and can't be overwritten. As long as `GPIO0` can be pulled low at power-on, the stock backup can always be written back. |
+
+The purifier itself (STM32 and physical buttons) should keep working even
+while the ESP32 firmware is broken, because only the network side is
+affected.
+
 ## Building
 
 ```bash
-# One-time: ESP-IDF v6.1 with the Xtensa toolchain
 git clone -b v6.1 --recursive https://github.com/espressif/esp-idf.git ~/.espressif/v6.1/esp-idf
+```
+
+```bash
 ~/.espressif/v6.1/esp-idf/install.sh esp32
 ```
 
@@ -301,12 +437,13 @@ cmake -S test -B test/build && cmake --build test/build && ./test/build/test_log
 ```
 
 For flashing, the module must be in bootloader mode (`GPIO0`↔`GND` shorted)
-and powered from the UART adapter. See [Flashing](#flashing).
+and powered from the UART adapter. See
+[Backup, flashing and restore](#backup-flashing-and-restore).
 
 ## Roadmap
 
-- [ ] Confirm chip variant (single/dual core) and flash size on real hardware
-- [ ] Capture a stock MCU↔ESP32 UART log (boot, button presses, app commands)
+- [ ] Back up a unit; confirm chip variant (single/dual core), flash size, eFuse MAC and stock partition table
+- [ ] Capture a stock MCU↔ESP32 UART log (boot, button presses, app commands, heartbeat)
 - [ ] Project skeleton on the plant-monitor stack (ESP-IDF 6.1, esp_matter 1.6, `esp32`, 4 MB single-app partitions, CI, Unity tests, CHANGELOG)
 - [ ] MIoT UART driver: line framing, `get_down` command queue, `result`/`properties_changed` parsing
 - [ ] `net` state reporting tied to Matter/Wi-Fi state (correct LED behaviour)
@@ -316,24 +453,37 @@ and powered from the UART adapter. See [Flashing](#flashing).
 - [ ] Factory reset via button combo / `restore`
 - [ ] Matter OTA updates (only if a dual-slot layout fits in 4 MB)
 - [ ] Tested with Apple Home, Google Home and Home Assistant
-- [ ] Possibly support other MIoT purifiers (3C, 4, 4 Lite, …) through per-model property tables
 
-## Credits and prior work
+## Credits and references
 
-This project builds on the work of others:
+Specs:
 
-- [dhewg/esphome-miot](https://github.com/dhewg/esphome-miot): ESPHome MIoT
-  components and the 3H config/wiki that this project's protocol handling
-  and property map are based on
-- [jaromeyer/mipurifier-esphome](https://github.com/jaromeyer/mipurifier-esphome):
-  the original ESPHome firmware for the 3H
-- [sourcediver.org: Unclouded purifier](https://sourcediver.org/posts/240218_unclouded_purifier/):
-  the write-up that inspired this project
+- [Xiaomi MIoT spec for `zhimi.airpurifier.mb3`](https://home.miot-spec.com/spec/zhimi.airpurifier.mb3):
+  property and action IDs
 - [blakadder/miot](https://github.com/blakadder/miot): English translation of
   Xiaomi's MIoT serial protocol docs
+
+Prior art: community reverse engineering of the 3H that documented the
+hardware (chips, header, UART pins and module quirks). This project doesn't
+use their code:
+
+- [sourcediver.org: Unclouded purifier](https://sourcediver.org/posts/240218_unclouded_purifier/):
+  the write-up that inspired this project
 - [Flamingo-tech/xiaomi-air-purifier-reverse-engineering](https://github.com/Flamingo-tech/xiaomi-air-purifier-reverse-engineering):
-  3H hardware reverse engineering and dumps
+  3H teardown, ESP-WROOM-32D and STM32F412 identification
+- [jaromeyer/mipurifier-esphome](https://github.com/jaromeyer/mipurifier-esphome)
+  and [dhewg/esphome-miot](https://github.com/dhewg/esphome-miot): ESPHome-based
+  firmwares for the 3H, the source of the header, pin and module-quirk
+  information
 - [muwave.de: Improving a Xiaomi Air Purifier 3H](https://blog.muwave.de/2025/02/hacking-the-xiaomi-air-purifier-3h-1-3/)
+
+Stack:
+
+- [psytraxx/esp32-homecontrol-matter](https://github.com/psytraxx/esp32-homecontrol-matter):
+  sister project on the same ESP-IDF / esp_matter stack
+- [esp-matter](https://github.com/espressif/esp-matter),
+  [ESP-IDF](https://github.com/espressif/esp-idf),
+  [esptool](https://github.com/espressif/esptool)
 
 ## Disclaimer
 
