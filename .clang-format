@@ -1,0 +1,14 @@
+# Matches the existing firmware style: Allman braces, 4-space indent, no column
+# reflow (ColumnLimit: 0) so hand-aligned tables and comments are preserved.
+BasedOnStyle: LLVM
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 0
+BreakBeforeBraces: Allman
+AccessModifierOffset: -4
+PointerAlignment: Right
+SortIncludes: false
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
