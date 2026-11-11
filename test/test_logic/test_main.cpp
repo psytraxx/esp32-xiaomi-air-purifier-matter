@@ -8,6 +8,7 @@ void run_queue_tests(void);
 void run_session_tests(void);
 void run_model_tests(void);
 void run_wifi_diag_tests(void);
+void run_ota_policy_tests(void);
 
 int main(int, char **)
 {
@@ -17,5 +18,6 @@ int main(int, char **)
     run_session_tests();
     run_model_tests();
     run_wifi_diag_tests();
+    run_ota_policy_tests();
     return UNITY_END();
 }

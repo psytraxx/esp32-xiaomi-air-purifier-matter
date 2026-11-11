@@ -21,10 +21,12 @@
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
 #include "nvs.h"
+#include "esp_wifi.h"
 
 #include "app_config.h"
 #include "boot_diag.h"
 #include "matter_setup.h"
+#include "ota_server.h"
 #include "purifier_link.h"
 #include "purifier_model.h"
 
@@ -90,6 +92,12 @@ static void restore_timer_cb(void *)
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+static bool wifi_up()
+{
+    wifi_ap_record_t ap = {};
+    return esp_wifi_sta_get_ap_info(&ap) == ESP_OK;
+}
 
 static void log_heap()
 {
@@ -171,6 +179,7 @@ extern "C" void app_main(void)
 
     EventGroupHandle_t matter_events = xEventGroupCreate();
     matter_setup(matter_events, model);
+    ota_server_start();
 
     // A boot counts as healthy once the Matter server is up.
     if (xEventGroupWaitBits(matter_events, MATTER_BIT_SERVER_READY, pdFALSE, pdTRUE, pdMS_TO_TICKS(60000)) & MATTER_BIT_SERVER_READY)
@@ -182,7 +191,17 @@ extern "C" void app_main(void)
     int64_t last_heap_log_us = esp_timer_get_time();
     for (;;)
     {
-        EventBits_t bits = xEventGroupWaitBits(s_main_events, MAIN_BIT_MODEL_DETECTED, pdTRUE, pdFALSE, pdMS_TO_TICKS(10000));
+        // Decide on a freshly updated image: keep it once everything works,
+        // roll back if it doesn't within ota_policy::VERIFY_TIMEOUT_MS.
+        if (ota_pending_verify())
+        {
+            const bool matter_ready = xEventGroupGetBits(matter_events) & MATTER_BIT_SERVER_READY;
+            ota_check_image(static_cast<uint32_t>(esp_timer_get_time() / 1000), matter_ready, wifi_up(),
+                            purifier_link_mcu_alive());
+        }
+
+        EventBits_t bits = xEventGroupWaitBits(s_main_events, MAIN_BIT_MODEL_DETECTED, pdTRUE, pdFALSE,
+                                               pdMS_TO_TICKS(ota_pending_verify() ? 1000 : 10000));
         // The bit is left set by the boot-time wait, so a detection made
         // during boot is handled on the first pass.
         if (bits & MAIN_BIT_MODEL_DETECTED)

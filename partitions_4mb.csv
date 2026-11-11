@@ -1,7 +1,12 @@
 # Name,   Type, SubType, Offset,   Size,     Flags
-# 4 MB flash (ESP-WROOM-32D): one factory app, no OTA slots yet (decision D3 is
-# open; esp-matter's own light example fits two 0x1E0000 slots in 4 MB, so OTA
-# is likely possible later). nvs holds Wi-Fi, Matter fabrics and boot_diag.
+# 4 MB flash (ESP-WROOM-32D), two app slots for updates over Wi-Fi
+# (main/ota_server.cpp): the running firmware writes the new image into the
+# other slot and boots it; the bootloader rolls back if it isn't kept.
+# nvs keeps the offset and size of the earlier single-app layout, so moving to
+# this table by serial flash keeps Wi-Fi, the Matter pairing and boot_diag.
+# The old phy_init partition is unused (CONFIG_ESP_PHY_INIT_DATA_IN_PARTITION
+# is off) and makes room for otadata.
 nvs,      data, nvs,     0x9000,   0x15000,
-phy_init, data, phy,     0x1E000,  0x1000,
-factory,  app,  factory, 0x20000,  0x3E0000,
+otadata,  data, ota,     0x1E000,  0x2000,
+ota_0,    app,  ota_0,   0x20000,  0x1F0000,
+ota_1,    app,  ota_1,   0x210000, 0x1F0000,

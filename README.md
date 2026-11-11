@@ -230,7 +230,7 @@ so tooling, conventions and lessons learned carry over:
 | Wi-Fi security | **WPA2** by default (also on mixed WPA2/WPA3 networks): the module failed the WPA3 key handshake on a mixed network, so WPA3 is off and pure WPA3 networks can't be joined. |
 | Transport | **Matter over Wi-Fi**, BLE (NimBLE) for commissioning only. The classic ESP32 has no 802.15.4 radio, so Thread isn't possible and no Thread Border Router is needed. |
 | Power model | Mains powered and always on: no ICD, no deep sleep (unlike the plant monitor) |
-| Partitions | Custom 4 MB table, single factory app plus NVS. The 1.4 MB firmware would fit two OTA slots; until that's decided (D3), updates are by serial flash. |
+| Partitions | Custom 4 MB table with two app slots for [updates over Wi-Fi](#updates-over-wi-fi), plus NVS for Wi-Fi, pairing and settings. |
 | Pairing code | Per-build discriminator, passcode and SPAKE2+ verifier in `main/chip_project_config.h`, generated with `tools/spake2p_verifier.py` |
 | Tests | Host-native [Unity](https://github.com/ThrowTheSwitch/Unity) tests in `test/` for the hardware-free logic: MIoT line parser, command queue, MIoT ↔ Matter value conversions |
 | CI | GitHub Actions: `espressif/esp-idf-ci-action` build (`-Werror`) for `esp32` plus the native test job |
@@ -536,6 +536,60 @@ drifts its sensors and reports changes. Type `power`, `mode 2`, `fav 9`
 Commission the board with the pairing code from the console log and watch
 the changes arrive in your controller, and vice versa.
 
+## Updates over Wi-Fi
+
+Once the purifier runs this firmware with the two-slot partition table, new
+firmware goes in over the network; the serial header is only needed again
+if something goes badly wrong.
+
+**Once, by serial flash:** moving from the earlier single-app layout needs
+one more `idf.py -p /dev/ttyUSB0 flash` with the module in bootloader mode.
+The settings area stays where it was, so Wi-Fi and the Matter pairing are
+kept; don't `erase-flash` for this step.
+
+**Every update after that:**
+
+```bash
+idf.py build
+```
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" --data-binary @build/air_purifier_matter.bin http://mi-air-purifier.fritz.box/ota
+```
+
+- The purifier registers as `mi-air-purifier` with DHCP. On a FRITZ!Box that
+  resolves as `mi-air-purifier.fritz.box`; otherwise use the IP address from
+  your router or the console log.
+- `curl http://mi-air-purifier.fritz.box/` shows the running version, app
+  slot and purifier model.
+- CI's `firmware-esp32` artifact contains `air_purifier_matter.bin` too.
+- Set an update token with `idf.py menuconfig` → *Air purifier* → *Update
+  token* and pass it as `$TOKEN`. Without a token, anyone on your network can
+  update the purifier; the console warns about that at every boot.
+
+```mermaid
+sequenceDiagram
+    participant PC
+    participant ESP as Purifier (ESP32)
+    participant Boot as Bootloader
+    PC->>ESP: POST /ota (app image)
+    ESP->>ESP: write image to the other slot, check it
+    ESP-->>PC: Update written, restarting
+    ESP->>Boot: restart
+    Boot->>ESP: boot new image (pending)
+    ESP->>ESP: Matter up, on Wi-Fi, purifier talking — within 2 min?
+    alt yes
+        ESP->>Boot: keep new image
+    else no, or it crashes first
+        Boot->>ESP: boot previous image
+    end
+```
+
+This is a plain HTTP upload, as in
+[gravity-cube-espidf](https://github.com/psytraxx/gravity-cube-espidf), not
+Matter OTA: Matter OTA needs an OTA provider on the network that serves our
+test vendor ID, which Home Assistant doesn't do for uncertified devices.
+
 ## Roadmap
 
 Checked items are written and host-tested but not yet run on a purifier.
@@ -551,7 +605,7 @@ The detailed phase plan, decisions and risks are in [docs/PLAN.md](docs/PLAN.md)
 - [x] HEPA Filter Monitoring incl. reset
 - [x] Air Quality, PM2.5, temperature, humidity endpoints
 - [x] Factory reset via the purifier's own network reset (`restore`)
-- [ ] Matter OTA updates (decision deferred until the binary size is known)
+- [x] Updates over Wi-Fi (HTTP upload with rollback)
 - [x] 3C support: property table, fan presets, model detection
 - [ ] First run on a real 3H (bridge behaves like stock)
 - [ ] First run on a real 3C; tune its Low/Medium/High speeds

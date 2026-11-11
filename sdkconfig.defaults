@@ -9,6 +9,16 @@ CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_4mb.csv"
 CONFIG_COMPILER_OPTIMIZATION_SIZE=y
 
+# Updates over Wi-Fi: a new image that isn't kept within two minutes is
+# rolled back by the bootloader (main/ota_server.cpp).
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
+# DHCP hostname, so routers that register them (e.g. a FRITZ!Box:
+# mi-air-purifier.fritz.box) can resolve the update server.
+CONFIG_LWIP_LOCAL_HOSTNAME="mi-air-purifier"
+# Matter takes most of the default 10 sockets; leave room for the update server.
+CONFIG_LWIP_MAX_SOCKETS=16
+
 # The module is a single-core ESP32 (rev 1.0), confirmed on a 3H in Phase 0
 # (dump/README.md).
 CONFIG_FREERTOS_UNICORE=y
