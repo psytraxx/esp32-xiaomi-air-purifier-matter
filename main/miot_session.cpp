@@ -83,6 +83,11 @@ std::string Session::handle_line(std::string_view line, uint32_t now_ms)
             return "down none";
         m_pending = next->kind;
         m_has_pending = true;
+        if (next->kind == Command::Kind::Set)
+        {
+            m_pending_set_id = next->set_id;
+            m_pending_set_value = next->set_value;
+        }
         return "down " + next->render();
     }
     if (cmd == "properties_changed")
@@ -223,6 +228,10 @@ void Session::handle_result(const std::vector<Token> &t)
                 break;
             updates.push_back({ id, Value::parse(t[i].text, t[i].quoted) });
             i += 1;
+        }
+        else if (kind == Command::Kind::Set && id == m_pending_set_id)
+        {
+            updates.push_back({ id, m_pending_set_value });
         }
     }
     if (!updates.empty() && m_hooks.on_properties)

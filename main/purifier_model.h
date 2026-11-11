@@ -311,8 +311,13 @@ struct FanView
 // Empty until power (and, when on, mode and the speed it needs) are known.
 std::optional<FanView> fan_view(const Profile &p, const State &state);
 
-// PercentCurrent / SpeedCurrent from the motor speed: 0 when off, otherwise
-// 1–100 % across the model's motor rpm range.
+// PercentCurrent / SpeedCurrent. Home Assistant shows PercentCurrent on its
+// fan slider, so it must match what was set:
+//   - off: 0;
+//   - a named level (Low/Medium/High): the cluster's 33 / 66 / 100 %;
+//   - a fine speed s: s·100/15 %, the cluster's PercentSetting for s;
+//   - Auto and Sleep (the purifier picks the speed): 1–100 % across the
+//     model's motor rpm range; 0 until the rpm is known.
 uint8_t percent_current(const Profile &p, const State &state);
 uint8_t speed_current(uint8_t percent);
 

@@ -145,7 +145,10 @@ static void test_set_result_reports_failures(void)
     s.handle_line("get_down", 3);
     s.handle_line("result 2 2 0", 4);
     TEST_ASSERT_EQUAL(1, r.set_failures.size());
-    TEST_ASSERT_EQUAL(0, r.props.size());
+    // An accepted set is reported back with the value that was sent.
+    TEST_ASSERT_EQUAL(1, r.props.size());
+    TEST_ASSERT_TRUE(r.props[0].id == (PropertyId{ 2, 2 }));
+    TEST_ASSERT_TRUE(*r.props[0].value.as_bool());
 }
 
 static void test_action_result(void)

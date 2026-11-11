@@ -530,15 +530,29 @@ std::optional<FanView> fan_view(const Profile &p, const State &s)
     return v;
 }
 
-uint8_t percent_current(const Profile &p, const State &s)
+static uint8_t percent_from_rpm(const Profile &p, const State &s)
 {
-    if (!s.power || !*s.power || !s.motor_rpm || *s.motor_rpm <= 0)
+    if (!s.motor_rpm || *s.motor_rpm <= 0)
         return 0;
     const int span = p.rpm_max - p.rpm_min;
     if (span <= 0)
         return 100;
     int pct = static_cast<int>(std::lround((*s.motor_rpm - p.rpm_min) * 100.0 / span));
     return static_cast<uint8_t>(clamp_int(pct, 1, 100));
+}
+
+uint8_t percent_current(const Profile &p, const State &s)
+{
+    if (!s.power || !*s.power)
+        return 0;
+    auto view = fan_view(p, s);
+    if (!view || view->mode == FanMode::Auto || view->sleep_wind)
+        return percent_from_rpm(p, s);
+    if (view->kind == FanView::Kind::Speed)
+        return static_cast<uint8_t>(view->speed * 100 / SPEED_MAX);
+    if (auto c = canonical_settings(view->mode))
+        return c->first;
+    return percent_from_rpm(p, s);
 }
 
 uint8_t speed_current(uint8_t percent)
