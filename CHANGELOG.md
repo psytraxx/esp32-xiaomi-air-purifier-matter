@@ -7,11 +7,11 @@ Entries are grouped by date, newest first.
 ### Added
 - First run on a real 3H: the firmware talks to the purifier's controller, recognises the 3H on its own and reads power, mode, PM2.5, temperature, humidity and filter life. The controller also reports changes by itself, so the Matter values follow the purifier without waiting for the next check.
 - A debug build option that prints every message exchanged with the purifier's controller, for bringing up new units and checking the protocol.
-- A WPA3 version of the firmware can be built to try on mixed WPA2/WPA3 networks. It puts back two Wi-Fi security settings that the Matter software was clearing, which is the likely reason WPA3 failed. The normal build stays WPA2-only until this is confirmed.
+- A WPA3 version of the firmware can be built to try on mixed WPA2/WPA3 networks. Tested on a FRITZ!Box 4040 in mixed mode it still couldn't connect, so the normal build stays WPA2-only; the WPA3 version is only worth trying with other routers.
 - When Wi-Fi fails to connect, the console now says why (for example a wrong password, a security setting the purifier can't use, or a weak signal), with a hint on what to change on the router. Once connected it shows which network and security mode it joined.
 
 ### Fixed
-- The purifier should now be able to join mixed WPA2/WPA3 Wi-Fi networks (still to confirm on the purifier). It kept dropping out during the Wi-Fi password exchange; it now always connects with WPA2. Networks that only allow WPA3 aren't supported.
+- The purifier now joins mixed WPA2/WPA3 Wi-Fi networks: confirmed on a 3H with a FRITZ!Box, where it connected at once and paired with Home Assistant. It used to drop out during the Wi-Fi password exchange; it now always connects with WPA2. Networks that only allow WPA3 aren't supported.
 
 ---
 

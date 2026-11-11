@@ -5,6 +5,7 @@
 #   idf.py -B build-wpa3 -D SDKCONFIG=build-wpa3/sdkconfig \
 #          -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.wpa3" build
 #
-# Not yet confirmed on a mixed WPA2/WPA3 network; the default build stays
-# WPA2-only until it is.
+# Tested 2026-11-11 on a 3H with a FRITZ!Box 4040 in WPA2/WPA3 mixed mode:
+# it still fails (reason 17 IE_IN_4WAY_DIFFERS at -46 dBm, every attempt), so
+# the default build stays WPA2-only. Kept for testing other routers.
 CONFIG_ESP_WIFI_ENABLE_WPA3_SAE=y

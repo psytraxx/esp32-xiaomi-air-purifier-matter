@@ -211,15 +211,19 @@ one model must not renumber the other model's.
 - **`CONFIG_ESP_MAC_IGNORE_MAC_CRC_ERROR=y`**: the MAC eFuse checksum is
   invalid (confirmed on a 3H); without this the MAC read fails at boot.
 - **WPA2 only by default** (`CONFIG_ESP_WIFI_ENABLE_WPA3_SAE=n`): on a mixed
-  WPA2/WPA3 network the 3H kept failing the key handshake with SAE enabled.
+  WPA2/WPA3 network the 3H kept failing the key handshake with SAE enabled;
+  with SAE off it joins the same FRITZ!Box 4040 at once (`security
+  WPA2_PSK`) and commissions with Home Assistant (Android).
   The CHIP ESP32 driver `memset`s the station config, which leaves
   `sae_pwe_h2e` at `WPA3_SAE_PWE_UNSPECIFIED`; `wifi_events.cpp`
   (`restore_security_defaults()`) puts `WPA3_SAE_PWE_BOTH` and PMF-optional
   back at station start and after each disconnect. The **WPA3 variant**
   (`sdkconfig.wpa3` overlay, build with
   `-D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.wpa3"` and its own
-  `-B`/`SDKCONFIG`) tests whether that alone fixes WPA3; if it's confirmed,
-  flip the default. The root `CMakeLists.txt` only sets
+  `-B`/`SDKCONFIG`) was tested on a 3H with a FRITZ!Box 4040 in WPA2/WPA3
+  mixed mode and **still fails** (reason 17 `IE_IN_4WAY_DIFFERS`, strong
+  signal), so WPA2-only stays the default. Keep the variant for other
+  routers only. The root `CMakeLists.txt` only sets
   `SDKCONFIG_DEFAULTS` when it isn't passed in. CI builds the default only.
 - **`sdkconfig.defaults` changes need a fresh `sdkconfig`**: an existing
   `sdkconfig` wins over the defaults file. Delete it (and `build/`) after
