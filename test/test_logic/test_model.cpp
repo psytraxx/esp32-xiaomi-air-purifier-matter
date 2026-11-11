@@ -391,6 +391,45 @@ static void test_round_trips(void)
     }
 }
 
+static void test_percent_current_follows_setting(void)
+{
+    // The bug from the first 3H test: a slider write must read back as the
+    // same percentage, whatever the motor reports.
+    State s = running(Mode::Favorite);
+    s.motor_rpm = 380;
+    s.favorite_level = 11; // speed 12, written as 80 %
+    TEST_ASSERT_EQUAL_UINT8(80, percent_current(H, s));
+    TEST_ASSERT_EQUAL_UINT8(12, speed_current(percent_current(H, s)));
+
+    s = running(Mode::Manual);
+    s.fan_level = 2;
+    TEST_ASSERT_EQUAL_UINT8(66, percent_current(H, s));
+
+    s = running(Mode::Favorite);
+    s.favorite_rpm = C.preset_rpm[2];
+    TEST_ASSERT_EQUAL_UINT8(100, percent_current(C, s));
+    s.favorite_rpm = rpm_for_speed(C, 4);
+    TEST_ASSERT_EQUAL_UINT8(4 * 100 / SPEED_MAX, percent_current(C, s));
+
+    // Every slider position reads back as the PercentSetting the cluster
+    // derives from it, on both models.
+    for (const Profile *p : { &H, &C })
+    {
+        for (uint8_t pct = 1; pct <= 100; pct++)
+        {
+            uint8_t speed = static_cast<uint8_t>((SPEED_MAX * pct + 99) / 100);
+            FanMode m = pct <= 33 ? FanMode::Low : (pct <= 66 ? FanMode::Medium : FanMode::High);
+            State st = running(Mode::Auto);
+            for (const auto &c : commands_for(*p, fan_target(FanDrive{ m, pct, speed }), st))
+                apply(*p, st, { c.id, c.value });
+            auto c = canonical_settings(m);
+            uint8_t expected = (c && pct == c->first && speed == c->second) ? c->first
+                                                                            : static_cast<uint8_t>(speed * 100 / SPEED_MAX);
+            TEST_ASSERT_EQUAL_UINT8(expected, percent_current(*p, st));
+        }
+    }
+}
+
 static void test_percent_current(void)
 {
     State s = running(Mode::Auto);
@@ -501,6 +540,7 @@ void run_model_tests(void)
     RUN_TEST(test_fan_view_3h);
     RUN_TEST(test_fan_view_3c);
     RUN_TEST(test_round_trips);
+    RUN_TEST(test_percent_current_follows_setting);
     RUN_TEST(test_percent_current);
     RUN_TEST(test_air_quality);
     RUN_TEST(test_filter_and_units);

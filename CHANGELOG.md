@@ -10,6 +10,7 @@ Entries are grouped by date, newest first.
 - When Wi-Fi fails to connect, the console now says why (for example a wrong password, a security setting the purifier can't use, or a weak signal), with a hint on what to change on the router. Once connected it shows which network and security mode it joined.
 
 ### Fixed
+- The fan speed slider in Home Assistant now stays where you put it. It used to jump back to the old position even though the purifier had changed speed, because the reported speed was only updated from the motor every 30 seconds and on a different scale.
 - The purifier now joins mixed WPA2/WPA3 Wi-Fi networks: confirmed on a 3H with a FRITZ!Box, where it connected at once and paired with Home Assistant. It used to drop out during the Wi-Fi password exchange; it now always connects with WPA2. Networks that only allow WPA3 aren't supported.
 
 ---

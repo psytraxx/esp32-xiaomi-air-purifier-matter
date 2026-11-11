@@ -59,7 +59,8 @@ public:
     struct Hooks
     {
         // Properties reported by the MCU, either unsolicited
-        // (properties_changed) or as the answer to a queued get.
+        // (properties_changed), as the answer to a queued get, or a queued
+        // set the MCU accepted (result code 0, reported with the value sent).
         std::function<void(const std::vector<PropertyUpdate> &)> on_properties;
         // A set the MCU rejected (non-zero result code).
         std::function<void(PropertyId, int code)> on_set_failed;
@@ -116,6 +117,11 @@ private:
     // What the last command handed over was, so its `result` can be parsed.
     Command::Kind m_pending = Command::Kind::Raw;
     bool m_has_pending = false;
+    // The set handed over last, reported back as a property update once the
+    // MCU accepts it, so the tracked state follows without waiting for the
+    // MCU to report the change itself.
+    PropertyId m_pending_set_id;
+    Value m_pending_set_value;
     bool m_net_announced = false;
     NetState m_last_net = NetState::Offline;
     std::string m_model;

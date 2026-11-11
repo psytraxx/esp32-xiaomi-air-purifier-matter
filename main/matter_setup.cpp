@@ -252,9 +252,21 @@ static void refresh_fan(const purifier::Profile &profile, const purifier::State 
             wind.Set(FanControl::WindBitmap::kSleepWind);
         warn_status("WindSetting", fan->SetWindSetting(wind));
     }
+    // Home Assistant shows PercentCurrent on its slider. When the purifier
+    // runs at the speed the cluster is set to, report the cluster's own
+    // PercentSetting, so a 50 % write reads back as 50 % rather than the
+    // 53 % its speed step stands for.
     uint8_t pct = purifier::percent_current(profile, state);
+    uint8_t speed = purifier::speed_current(pct);
+    if (view && view->mode != purifier::FanMode::Off && view->mode != purifier::FanMode::Auto && !view->sleep_wind)
+    {
+        auto setting = fan->GetPercentSetting();
+        auto speed_setting = fan->GetSpeedSetting();
+        if (!setting.IsNull() && !speed_setting.IsNull() && speed_setting.Value() == speed)
+            pct = setting.Value();
+    }
     fan->SetPercentCurrent(pct);
-    fan->SetSpeedCurrent(purifier::speed_current(pct));
+    fan->SetSpeedCurrent(speed);
     s_applying_purifier_state = false;
 }
 
