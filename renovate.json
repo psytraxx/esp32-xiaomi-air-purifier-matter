@@ -1,0 +1,46 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "schedule:monthly",
+    ":automergePatch",
+    ":automergeDigest",
+    ":automergeMinor",
+    ":automergePr",
+    ":label(renovate)",
+    ":dependencyDashboard",
+    "group:all"
+  ],
+  "vulnerabilityAlerts": {
+    "labels": [
+      "security"
+    ],
+    "automerge": true
+  },
+  "separateMajorMinor": true,
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Unity pin in the host-test CMakeLists (FetchContent GIT_TAG)",
+      "managerFilePatterns": [
+        "/^test/CMakeLists\\.txt$/"
+      ],
+      "matchStrings": [
+        "GIT_REPOSITORY\\s+https://github\\.com/(?<depName>[^\\s]+?)(?:\\.git)?\\s+GIT_TAG\\s+(?<currentValue>v[\\d.]+)"
+      ],
+      "datasourceTemplate": "github-tags"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "IDF/esp_matter bumps in main/idf_component.yml are deliberate migrations done by hand \u2014 Renovate has no datasource for the ESP Component Registry anyway. Do not auto-merge managed-component or GitHub-Actions image changes.",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchPackageNames": [
+        "espressif/esp-idf-ci-action"
+      ],
+      "automerge": false
+    }
+  ]
+}

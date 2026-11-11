@@ -1,0 +1,92 @@
+name: Firmware
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build firmware
+    runs-on: ubuntu-latest
+    env:
+      # Host-side ccache dir, bind-mounted into the ESP-IDF container below.
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Cache managed components
+        uses: actions/cache@v6
+        with:
+          path: managed_components
+          key: managed-components-esp32-${{ hashFiles('dependencies.lock', 'main/idf_component.yml') }}
+          restore-keys: managed-components-esp32-
+
+      - name: Cache ccache
+        uses: hendrikmuhs/ccache-action@v1.2.24
+        with:
+          key: esp32-v6.1
+          max-size: 400M
+          evict-old-files: 7d
+
+      - name: Configure ccache for the container
+        run: |
+          mkdir -p "${{ env.CCACHE_DIR }}"
+          cat > "${{ env.CCACHE_DIR }}/ccache.conf" <<'EOF'
+          max_size = 400M
+          compression = true
+          compiler_check = %compiler% --version
+          hash_dir = false
+          sloppiness = time_macros,include_file_mtime,include_file_ctime,locale,random_seed
+          EOF
+
+      - name: Build firmware
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v6.1
+          target: esp32
+          command: idf.py build && idf.py size
+          extra_docker_args: -v ${{ env.CCACHE_DIR }}:/root/.ccache -e CCACHE_DIR=/root/.ccache -e IDF_CCACHE_ENABLE=1
+
+      - name: Fix cache permissions
+        # The container writes as root; take ownership back so the post-job
+        # cache steps can read and save.
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" "$CCACHE_DIR" build managed_components || true
+
+      - name: Merge flashable image
+        run: |
+          cd build
+          python3 -m pip install --quiet esptool
+          python3 -m esptool --chip esp32 merge-bin -o air_purifier_matter_merged.bin @flash_args
+
+      - name: Upload firmware
+        uses: actions/upload-artifact@v7
+        with:
+          name: firmware-esp32
+          path: |
+            build/air_purifier_matter.bin
+            build/air_purifier_matter_merged.bin
+            build/bootloader/bootloader.bin
+            build/partition_table/partition-table.bin
+            build/flash_args
+          if-no-files-found: error
+
+  test:
+    name: Native unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Build and run tests
+        run: |
+          cmake -S test -B test/build
+          cmake --build test/build
+          ./test/build/test_logic

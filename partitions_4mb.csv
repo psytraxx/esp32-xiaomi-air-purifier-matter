@@ -1,0 +1,7 @@
+# Name,   Type, SubType, Offset,   Size,     Flags
+# 4 MB flash (ESP-WROOM-32D): one factory app, no OTA slots yet (decision D3 is
+# open; esp-matter's own light example fits two 0x1E0000 slots in 4 MB, so OTA
+# is likely possible later). nvs holds Wi-Fi, Matter fabrics and boot_diag.
+nvs,      data, nvs,     0x9000,   0x15000,
+phy_init, data, phy,     0x1E000,  0x1000,
+factory,  app,  factory, 0x20000,  0x3E0000,

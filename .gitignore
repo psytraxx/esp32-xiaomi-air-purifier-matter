@@ -1,0 +1,18 @@
+managed_components/
+sdkconfig
+sdkconfig.old
+build/
+test/build/
+*.bin
+*.elf
+*.map
+.DS_Store
+.vscode/c_cpp_properties.json
+.vscode/launch.json
+.cache/
+__pycache__/
+*.lck
+# Stock flash dumps and eFuse records are private (device keys, Wi-Fi password)
+stock_*
+*.dump
+build-debug/
