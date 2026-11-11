@@ -5,6 +5,7 @@ Entries are grouped by date, newest first.
 ## 2026-11-11
 
 ### Added
+- New firmware can now be installed over Wi-Fi: upload it to the purifier with one command, and it switches over by itself. If the new version doesn't come up properly within two minutes (Matter, Wi-Fi and the purifier all working), the purifier goes back to the previous version on its own. An optional password protects the upload. Moving to this needs one last update over the cable, which keeps the Wi-Fi settings and the Home Assistant pairing.
 - First run on a real 3H: the firmware talks to the purifier's controller, recognises the 3H on its own and reads power, mode, PM2.5, temperature, humidity and filter life. The controller also reports changes by itself, so the Matter values follow the purifier without waiting for the next check.
 - A debug build option that prints every message exchanged with the purifier's controller, for bringing up new units and checking the protocol.
 - When Wi-Fi fails to connect, the console now says why (for example a wrong password, a security setting the purifier can't use, or a weak signal), with a hint on what to change on the router. Once connected it shows which network and security mode it joined.

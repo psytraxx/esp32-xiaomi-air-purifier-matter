@@ -34,7 +34,7 @@ Phases 1 and 2 don't need the purifier and run in parallel with Phase 0.
 |---|---|---|
 | D1 | Fan / mode control | **Matter Fan Control cluster** for everything fan-related: power, Auto, Low/Med/High, fine speed, Sleep. No separate On/Off cluster, so there's a single source of truth for power. Mapping below. |
 | D2 | Child lock, buzzer, display brightness | **Not exposed.** They stay controllable on the device itself. |
-| D3 | Matter OTA updates | **Decide later.** Data is in: the first CI build is 1.39 MB, and two OTA slots of 1.875 MB (esp-matter's own 4 MB layout) would leave ~480 KB headroom each. Single-app layout until decided. |
+| D3 | Firmware updates | **Updates over Wi-Fi by HTTP upload** (`POST /ota`, optional token), as in gravity-cube-espidf, with two 1.94 MB app slots and bootloader rollback. Not Matter OTA: Home Assistant only serves updates for devices in the production DCL. |
 | D4 | Pairing code | **Per build, like the plant monitor**: discriminator, passcode and SPAKE2+ verifier in `main/chip_project_config.h`, generated with `tools/spake2p_verifier.py`. |
 | D5 | License | Open |
 | D6 | Mi Air Purifier 3C | **Same firmware image as the 3H.** One property table per model; the model is announced by the MCU or told apart by a probe, remembered in NVS, and can be forced at build time. Endpoints 1–2 are identical on both; temperature/humidity (3–4) exist on the 3H only. See [3C mapping](#mi-air-purifier-3c). |
@@ -223,7 +223,7 @@ Mirror [esp32-homecontrol-matter](https://github.com/psytraxx/esp32-homecontrol-
   - MAC CRC ignore prepared but kept off until Phase 0 confirms it;
   - CHIP logging at error level;
   - `CONFIG_ESP_MATTER_MAX_DYNAMIC_ENDPOINT_COUNT`.
-- **Partitions:** `partitions_4mb.csv` with a single factory app (D3 later).
+- **Partitions:** `partitions_4mb.csv`, now two app slots for updates (D3).
 - **Pairing (D4):** `chip_project_config.h` and `tools/spake2p_verifier.py`.
 - **Code from the plant monitor:** `boot_diag.cpp/.h` (boot-loop guard).
 - **Firmware:** `app_main.cpp` brings up a root-node-only, commissionable

@@ -10,8 +10,10 @@ idf_component_register(
         "purifier_model.cpp"
         "wifi_diag.cpp"
         "wifi_events.cpp"
+        "ota_policy.cpp"
+        "ota_server.cpp"
     INCLUDE_DIRS "."
-    REQUIRES esp_driver_uart esp_event esp_netif esp_timer esp_wifi nvs_flash
+    REQUIRES app_update esp_app_format esp_driver_uart esp_event esp_http_server esp_netif esp_timer esp_wifi nvs_flash
 )
 
 # Purifier model: detected at runtime by default. Force one with

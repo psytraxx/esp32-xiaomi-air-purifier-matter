@@ -77,6 +77,8 @@ Entry point is `app_main()` in [main/app_main.cpp](main/app_main.cpp).
 | `main/miot_session.h/.cpp` | One MCU line in → one reply out; hooks for properties, set failures, events, `restore`, `net`, `time`, `mac` | yes |
 | `main/purifier_model.h/.cpp` | Per-model `Profile`s (3H, 3C), model detection/decision rules, tracked `State`, all MIoT ↔ Matter conversions (the tables in docs/PLAN.md) | yes |
 | `main/wifi_diag.h/.cpp` | Wi-Fi disconnect reason / security-mode names (ESP-IDF v6.1 values), hints, repeat filter | yes |
+| `main/ota_policy.h/.cpp` | Keep/roll-back decision for a new image, update-token check | yes |
+| `main/ota_server.h/.cpp` | HTTP update server (`GET /`, `POST /ota`), image verification after an update | no |
 | `main/wifi_events.h/.cpp` | Logs station connects/disconnects via `wifi_diag` (the CHIP SDK log level hides them); registered after `esp_matter::start()` | no |
 | `main/purifier_link.h/.cpp` | UART2 driver + link task: line framing, session under a recursive mutex, 30 s poll, 60 s heartbeat, MCU-silence detection | no |
 | `main/matter_setup.h/.cpp` | Node + endpoints, Fan Control / HEPA delegates, state → cluster refresh on the CHIP task, commissioning + Wi-Fi events, SNTP | no |
@@ -212,15 +214,36 @@ one model must not renumber the other model's.
   3H failed every key handshake on a FRITZ!Box 4040 in WPA2/WPA3 mixed mode
   (reason 17 `IE_IN_4WAY_DIFFERS`, strong signal), even with the station's
   SAE/PMF fields restored to ESP-IDF defaults (the CHIP driver `memset`s
-  them). With SAE off it joins the same network at once (`security
+  them). Likely cause, from gravity-cube-espidf: that FRITZ!Box advertises a
+  WPA3 compatibility (RSN override) element in its beacon but leaves it out
+  of handshake message 3; that project sets
+  `wifi_config_t.sta.disable_wpa3_compatible_mode = 1`. Here the CHIP driver
+  owns the station config, so WPA3 stays off instead. With SAE off it joins the same network at once (`security
   WPA2_PSK`) and commissions with Home Assistant. Pure WPA3 networks are
   not supported.
 - **`sdkconfig.defaults` changes need a fresh `sdkconfig`**: an existing
   `sdkconfig` wins over the defaults file. Delete it (and `build/`) after
   changing defaults.
 - **No power management / light sleep** — mains powered; don't add PM locks.
-- **Partition table**: [partitions_4mb.csv](partitions_4mb.csv), single factory
-  app (D3, OTA, is open). `nvs` holds Wi-Fi, Matter fabrics and boot_diag.
+- **Partition table**: [partitions_4mb.csv](partitions_4mb.csv), two app slots
+  (`ota_0`, `ota_1`, 0x1F0000 each) for updates over Wi-Fi. `nvs` (Wi-Fi,
+  Matter fabrics, boot_diag, remembered model) keeps the offset and size of
+  the earlier single-app layout (0x9000, 0x15000) so a serial flash to the new
+  table keeps the pairing — never move it. `otadata` took the unused
+  `phy_init` space.
+- **Updates over Wi-Fi** (`ota_server.cpp`, rules in host-tested
+  `ota_policy.cpp`), modelled on gravity-cube-espidf: `POST /ota` with the app
+  image (optional `Authorization: Bearer` token, `CONFIG_PURIFIER_OTA_TOKEN`
+  in `main/Kconfig.projbuild`), `GET /` for version/slot/model. The httpd is
+  limited to 2 sockets (`CONFIG_LWIP_MAX_SOCKETS=16` leaves room next to
+  Matter). `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y`: a new image is kept
+  once Matter is ready, Wi-Fi is up and the MCU talks
+  (`ota_policy::verdict`), checked from the `app_main` loop; otherwise it
+  rolls back after 2 minutes. Not Matter OTA: Home Assistant only serves
+  OTA for devices in the production DCL, not our test vendor ID.
+- **Hostname** `mi-air-purifier` (`CONFIG_LWIP_LOCAL_HOSTNAME`) via DHCP.
+  No mDNS name: Matter uses CHIP's minimal mDNS (`CONFIG_USE_MINIMAL_MDNS=y`),
+  and Espressif's mDNS component would compete for port 5353.
 - **Pairing code is per-build**: discriminator, passcode and verifier in
   `chip_project_config.h`. Change passcode and verifier together
   (`python3 tools/spake2p_verifier.py <passcode>`).

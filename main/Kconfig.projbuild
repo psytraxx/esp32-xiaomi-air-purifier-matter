@@ -1,0 +1,11 @@
+menu "Air purifier"
+
+config PURIFIER_OTA_TOKEN
+    string "Update token"
+    default ""
+    help
+        If set, a firmware update over Wi-Fi (HTTP POST to /ota) must carry
+        the header "Authorization: Bearer <token>". Empty lets anyone on the
+        network update the purifier.
+
+endmenu

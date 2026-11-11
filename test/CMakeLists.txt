@@ -18,11 +18,13 @@ add_executable(test_logic
     test_logic/test_session.cpp
     test_logic/test_model.cpp
     test_logic/test_wifi_diag.cpp
+    test_logic/test_ota_policy.cpp
     ../main/miot_protocol.cpp
     ../main/miot_queue.cpp
     ../main/miot_session.cpp
     ../main/purifier_model.cpp
     ../main/wifi_diag.cpp
+    ../main/ota_policy.cpp
 )
 target_include_directories(test_logic PRIVATE ../main)
 target_link_libraries(test_logic PRIVATE unity)
