@@ -5,15 +5,18 @@ Entries are grouped by date, newest first.
 ## 2026-11-11
 
 ### Added
-- WPA3 Wi-Fi is supported again, including networks that only allow WPA3. Routers whose mixed WPA2/WPA3 mode is broken, such as the FRITZ!Box 4040, are joined with WPA2 instead, the same fix as in the gravity cube project.
+- WPA3 Wi-Fi is supported, including networks that only allow WPA3. Routers whose mixed WPA2/WPA3 mode is broken, such as the FRITZ!Box 4040, are joined with WPA2 instead, the same fix as in the gravity cube project. Not yet confirmed on the purifier.
 - New firmware can now be installed over Wi-Fi: upload it to the purifier with one command, and it switches over by itself. If the new version doesn't come up properly within two minutes (Matter, Wi-Fi and the purifier all working), the purifier goes back to the previous version on its own. An optional password protects the upload. Moving to this needs one last update over the cable, which keeps the Wi-Fi settings and the Home Assistant pairing.
 - First run on a real 3H: the firmware talks to the purifier's controller, recognises the 3H on its own and reads power, mode, PM2.5, temperature, humidity and filter life. The controller also reports changes by itself, so the Matter values follow the purifier without waiting for the next check.
 - A debug build option that prints every message exchanged with the purifier's controller, for bringing up new units and checking the protocol.
 - When Wi-Fi fails to connect, the console now says why (for example a wrong password, a security setting the purifier can't use, or a weak signal), with a hint on what to change on the router. Once connected it shows which network and security mode it joined.
 
+### Changed
+- The README, plan and developer guide were brought up to date with what the first tests on a real 3H showed, and no longer describe features that aren't there.
+
 ### Fixed
 - The fan speed slider in Home Assistant now stays where you put it. It used to jump back to the old position even though the purifier had changed speed, because the reported speed was only updated from the motor every 30 seconds and on a different scale.
-- The purifier now joins mixed WPA2/WPA3 Wi-Fi networks: confirmed on a 3H with a FRITZ!Box, where it connected at once and paired with Home Assistant. It used to drop out during the Wi-Fi password exchange; it now always connects with WPA2. Networks that only allow WPA3 aren't supported.
+- The purifier now joins mixed WPA2/WPA3 Wi-Fi networks: confirmed on a 3H with a FRITZ!Box, where it connected with WPA2 at once and paired with Home Assistant. It used to drop out during the Wi-Fi password exchange.
 
 ---
 

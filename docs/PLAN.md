@@ -20,13 +20,13 @@ Phases 1 and 2 don't need the purifier and run in parallel with Phase 0.
 
 | Phase | State |
 |---|---|
-| 0 Hardware recon | **Partly done (3H)** — backup taken and verified; single core, 4 MB flash, invalid MAC CRC confirmed ([dump/README.md](../dump/README.md)). Still open: UART capture of the stock firmware, and the 3C |
-| 1 Project skeleton | **Done** — builds in CI ([PR #1](https://github.com/psytraxx/esp32-xiaomi-air-purifier-matter/pull/1)) |
-| 2 MIoT protocol core | **Done** — host-tested; capture-based fixtures follow Phase 0 |
-| 3 UART bridge | **Written** (`purifier_link`, `tools/mcu_sim.py`); devkit and in-purifier tests open |
-| 4 Matter endpoints | **Written** (all four endpoints, delegates, echo suppression); controller tests open |
-| 5 Robustness | **Partly written** (Wi-Fi LED via `net`, SNTP `time`, `restore` → factory reset, MCU-silence log); reachability flag open |
-| 6 Validation + release | CI builds a flashable image; the rest is open |
+| 0 Hardware recon | **Done for the 3H** — backup taken and verified; single core, 4 MB flash, invalid MAC CRC confirmed ([dump/README.md](../dump/README.md)). Still open: UART capture of the stock firmware, and the 3C |
+| 1 Project skeleton | **Done** ([PR #1](https://github.com/psytraxx/esp32-xiaomi-air-purifier-matter/pull/1)) |
+| 2 MIoT protocol core | **Done** — host-tested; capture-based fixtures would follow a stock capture |
+| 3 UART bridge | **Done on a 3H** — link, polling, change reports and model probe work |
+| 4 Matter endpoints | **Working on a 3H with Home Assistant** — power, presets, speed slider ([PR #2](https://github.com/psytraxx/esp32-xiaomi-air-purifier-matter/pull/2)), sensors; Apple Home / Google Home untested |
+| 5 Robustness | **Partly done** — Wi-Fi LED via `net`, SNTP `time`, `restore` → factory reset, MCU-silence log, Wi-Fi failure reasons, updates over Wi-Fi with rollback ([PR #4](https://github.com/psytraxx/esp32-xiaomi-air-purifier-matter/pull/4)), WPA3 compatibility fix ([PR #5](https://github.com/psytraxx/esp32-xiaomi-air-purifier-matter/pull/5)); no reachability flag yet |
+| 6 Validation + release | CI builds a flashable image; soak test, other controllers and restore rehearsal open |
 
 ## Decisions
 
@@ -68,12 +68,12 @@ The 3C's are in [Mi Air Purifier 3C](#mi-air-purifier-3c) below.
 | Manual level 1 / 2 / 3 | 2.5 = 3, 2.4 = 1/2/3 | 1 | Fan Control | `FanMode` = Low / Medium / High |
 | Favorite mode, 15-step speed | 2.5 = 2, 10.10 = 0–14 | 1 | Fan Control | `SpeedSetting` 1–15 / `PercentSetting` (feature **SPD**, `SpeedMax` = 15) |
 | Sleep mode | 2.5 = 1 | 1 | Fan Control | `WindSetting` = SleepWind (feature **WND**, `WindSupport` = SleepWind) |
-| Actual motor speed | 10.8 (300–2300 rpm) | 1 | Fan Control | `PercentCurrent`, `SpeedCurrent` |
+| Current speed | the setting; 10.8 rpm in Auto/Sleep | 1 | Fan Control | `PercentCurrent`, `SpeedCurrent` |
 | Filter life | 4.3 (%) | 1 | HEPA Filter Monitoring | `Condition` (`DegradationDirection` = Down) |
 | Filter needs replacing | from 4.3 | 1 | HEPA Filter Monitoring | `ChangeIndication` OK / Warning / Critical |
 | Filter used time | 4.5 (h) | 1 | HEPA Filter Monitoring | `LastChangedTime` = now − hours used (needs SNTP time) |
 | Reset filter | action 4.1 | 1 | HEPA Filter Monitoring | `ResetCondition` command |
-| Identify | display brightness 6.1 | 1 | Identify | `Identify` command → blink display (internal use only) |
+| Identify | — | 1 | Identify | Accepted and logged; no visible effect yet |
 | Air quality level | 13.8 (0–5) | 2 | Air Quality | `AirQuality` enum |
 | PM2.5 | 3.6 (µg/m³) | 2 | PM2.5 Concentration Measurement | `MeasuredValue`, unit µg/m³, medium Air |
 | Temperature | 3.8 (°C) | 3 | Temperature Measurement | `MeasuredValue` (0.01 °C) |
@@ -81,7 +81,7 @@ The 3C's are in [Mi Air Purifier 3C](#mi-air-purifier-3c) below.
 | Device info | `model`, `mcu_version` | 0 | Basic Information | Product name, software version strings |
 | Child lock | 7.1 | — | — | Not exposed (D2) |
 | Buzzer | 5.1 | — | — | Not exposed (D2) |
-| Display brightness | 6.1 | — | — | Not exposed (D2); used internally for Identify |
+| Display brightness | 6.1 | — | — | Not exposed (D2) |
 | Fault code | 2.1 | 0 | General Diagnostics | `ActiveHardwareFaults` + `HardwareFaultChange` event: codes 3–5 (sensor errors) → Sensor, other non-zero codes → Unspecified |
 | Filter door | 15.5 | — | — | Logged |
 | Use time, purified volume, average AQI | 12.1, 13.1, 13.2 | — | — | Ignored |
@@ -126,8 +126,13 @@ relationship: writing FanMode Low/Medium/High always yields 33 %/1, 66 %/8 and
 pushes either a FanMode or a SpeedSetting and lets the cluster fill in the
 rest, and recognises a controller's FanMode write by exactly those pairs.
 
-`PercentCurrent` = (rpm − 300) / (2300 − 300) · 100, clamped to 1–100 while
-running and 0 when off. `SpeedCurrent` = ⌈15 · PercentCurrent / 100⌉.
+`PercentCurrent` is what Home Assistant shows on its fan slider, so it
+follows the setting: 0 when off; 33 / 66 / 100 % for Low / Medium / High;
+the cluster's `PercentSetting` for a fine speed (or speed·100/15 %). Only in
+Auto and Sleep, where the purifier picks the speed, is it the motor rpm:
+(rpm − 300) / (2300 − 300) · 100, clamped to 1–100.
+`SpeedCurrent` = ⌈15 · PercentCurrent / 100⌉. An accepted set updates the
+tracked state at once, without waiting for the MCU's report.
 
 ### Other value conversions
 
@@ -219,8 +224,7 @@ Mirror [esp32-homecontrol-matter](https://github.com/psytraxx/esp32-homecontrol-
 - **`sdkconfig.defaults` for `esp32`:**
   - Wi-Fi station on; Thread, ICD and sleep off;
   - NimBLE, with BLE memory released after commissioning;
-  - unicore until Phase 0 says otherwise;
-  - MAC CRC ignore prepared but kept off until Phase 0 confirms it;
+  - unicore and MAC CRC ignore (both confirmed in Phase 0);
   - CHIP logging at error level;
   - `CONFIG_ESP_MATTER_MAX_DYNAMIC_ENDPOINT_COUNT`.
 - **Partitions:** `partitions_4mb.csv`, now two app slots for updates (D3).
@@ -239,8 +243,8 @@ Mirror [esp32-homecontrol-matter](https://github.com/psytraxx/esp32-homecontrol-
 | File | Contents |
 |---|---|
 | `main/miot_protocol.h` | Line tokenizer (quoted strings, ` ` escapes, 512-byte limit), reply formatter |
-| `main/miot_queue.h` | Pending down-command queue: FIFO, per-property merge, timeout when no `result` comes back |
-| `main/purifier_model.h` | 3H property table + every conversion in the tables above |
+| `main/miot_queue.h` | Pending down-command queue: FIFO, per-property set merge, get dedupe, bounded |
+| `main/purifier_model.h` | 3H and 3C property tables + every conversion in the tables above |
 | `main/miot_session.h` | Received line → reply + events; answers `get_down`, `net`, `time`, `model`, `mcu_version`; tracks MCU state |
 
 **Done when** each file has Unity tests, using real Phase 0 capture lines as
@@ -248,7 +252,7 @@ fixtures.
 
 ### Phase 3: UART bridge
 
-1. **`main/miot_uart.cpp`:** UART on GPIO16 (RX) / GPIO17 (TX), 115200 8N1.
+1. **`main/purifier_link.cpp`:** UART on GPIO16 (RX) / GPIO17 (TX), 115200 8N1.
    An RX task assembles `\r`-terminated lines and passes them to
    `miot_session`, which replies within the MCU's timing. Every line is
    logged at debug level.
@@ -294,8 +298,8 @@ Assistant, and the buttons and Matter stay in sync.
 - `time` is answered from SNTP.
 - The purifier's own Wi-Fi reset (`restore` from the MCU) erases the Matter
   fabrics and reopens commissioning.
-- If the MCU goes silent for N seconds, the purifier is flagged as
-  unreachable and fault codes are logged.
+- If the MCU goes silent for 5 seconds it's logged (done). Flagging the
+  purifier as unreachable in Matter is still open.
 - Wi-Fi and router reconnects are handled; the boot-loop guard comes from
   `boot_diag`.
 
