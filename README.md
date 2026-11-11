@@ -9,11 +9,11 @@ Wi-Fi module. The ESP32 then joins your Matter fabric directly (Apple Home,
 Google Home, Home Assistant, SmartThings, …) instead of talking to the Xiaomi
 cloud. No extra hardware or soldering is required.
 
-> **Status: first firmware written, not yet tried on a real purifier.** The
-> protocol and Matter mapping are covered by host tests and the firmware
-> builds in CI, but the hardware facts it relies on (pins, single core, MAC
-> quirk, heartbeat) are still unverified. Do the backup first and expect to
-> restore it. See [docs/PLAN.md](docs/PLAN.md) for what's done and what's next.
+> **Status: running on a real 3H.** It joins Wi-Fi, pairs with Home
+> Assistant, and the purifier's power, modes, fan speed and sensors work
+> through Matter. The 3C is supported in code but not yet tried on a unit,
+> and a few details are still open (see [docs/PLAN.md](docs/PLAN.md)). Do the
+> backup first, so you can always go back to Xiaomi's firmware.
 
 ---
 
@@ -27,6 +27,7 @@ cloud. No extra hardware or soldering is required.
 - [Software stack](#software-stack)
 - [Backup, flashing and restore](#backup-flashing-and-restore)
 - [Building](#building)
+- [Updates over Wi-Fi](#updates-over-wi-fi)
 - [Roadmap](#roadmap) (details in [docs/PLAN.md](docs/PLAN.md))
 - [Credits and references](#credits-and-references)
 - [Disclaimer](#disclaimer)
@@ -42,9 +43,9 @@ cloud. No extra hardware or soldering is required.
 
 The firmware picks the right property table by itself:
 
-- The purifier's controller announces its model when it starts up.
-- If it doesn't (for example after only the ESP32 restarted), the firmware
-  asks for one property each model has and the other doesn't.
+- It asks the purifier's controller for one property each model has and
+  the other doesn't. (The controller may also announce its model when it
+  starts up; the 3H tested so far didn't.)
 - The detected model is remembered, so later boots start straight away.
 
 A build can also force a model with `idf.py -DPURIFIER_MODEL=1 build` (3H)
@@ -108,9 +109,9 @@ table in `main/purifier_model.cpp`.
 Both purifiers use the same module and MCU link. The cores, flash and MAC
 rows are confirmed on a 3H from its stock backup (see
 [dump/README.md](dump/README.md), which also has Xiaomi's stock partition
-table); the pins and serial link come from community reverse engineering (see
-[Credits](#credits-and-references)) and are confirmed once our firmware talks
-to the MCU.
+table); the pins and serial link, first documented by community reverse
+engineering (see [Credits](#credits-and-references)), are confirmed by this
+firmware running on a 3H.
 
 Disassembly is the same as for the other Xiaomi tower purifiers: remove the
 filter, undo the screws inside the filter compartment and at the top, then
@@ -143,11 +144,12 @@ sequenceDiagram
     E-->>M: down none
 
     Note over C,M: User turns the purifier on via Matter
-    C->>E: OnOff / FanMode write
+    C->>E: Fan Control write (FanMode Auto)
     E->>E: queue "set_properties 2 2 true"
     M->>E: get_down
     E-->>M: down set_properties 2 2 true
     M->>E: result 2 2 0
+    Note over E: an accepted set updates the state at once
     E-->>M: ok
     E->>C: attribute report
 
@@ -204,7 +206,7 @@ flowchart TB
 | Power, Auto, Low / Medium / High | Fan Control `FanMode` Off / Auto / Low / Medium / High |
 | Favorite mode (15 steps) | Fan Control `SpeedSetting` / `PercentSetting` |
 | Sleep mode | Fan Control `WindSetting` = SleepWind |
-| Motor speed | Fan Control `PercentCurrent` / `SpeedCurrent` |
+| Current speed | Fan Control `PercentCurrent` / `SpeedCurrent`: the speed that was set, or in Auto and Sleep the motor's actual speed (Home Assistant shows this on its fan slider) |
 | Filter life, used time, reset | HEPA Filter Monitoring |
 | AQI level, PM2.5 | Air Quality, PM2.5 Concentration Measurement |
 | Temperature, humidity (3H) | Temperature / Relative Humidity Measurement |
@@ -232,7 +234,7 @@ so tooling, conventions and lessons learned carry over:
 | Power model | Mains powered and always on: no ICD, no deep sleep (unlike the plant monitor) |
 | Partitions | Custom 4 MB table with two app slots for [updates over Wi-Fi](#updates-over-wi-fi), plus NVS for Wi-Fi, pairing and settings. |
 | Pairing code | Per-build discriminator, passcode and SPAKE2+ verifier in `main/chip_project_config.h`, generated with `tools/spake2p_verifier.py` |
-| Tests | Host-native [Unity](https://github.com/ThrowTheSwitch/Unity) tests in `test/` for the hardware-free logic: MIoT line parser, command queue, MIoT ↔ Matter value conversions |
+| Tests | Host-native [Unity](https://github.com/ThrowTheSwitch/Unity) tests in `test/` for the hardware-free logic: MIoT protocol and session, command queue, both purifiers' MIoT ↔ Matter conversions, Wi-Fi failure reasons, update rules |
 | CI | GitHub Actions: `espressif/esp-idf-ci-action` build (`-Werror`) for `esp32` plus the native test job |
 | Housekeeping | `CHANGELOG.md` (dated, plain language), `CLAUDE.md` agent guide, Renovate |
 
@@ -241,17 +243,14 @@ spec. No ESPHome or ESPHome components are used.
 
 Board-specific differences from the plant monitor:
 
-- **Custom MAC in eFuse.** If the MAC CRC really doesn't validate, the
-  default MAC read fails and we need `CONFIG_ESP_MAC_IGNORE_MAC_CRC_ERROR=y`.
-  `espefuse summary` during the backup step will tell.
-- **Possibly single core.** Use `CONFIG_FREERTOS_UNICORE=y` until
-  `esptool chip-id` proves the module is dual-core.
-- **Code-driven clusters.** In esp_matter 1.6, measurement clusters such as
-  Temperature and Relative Humidity are served by cluster objects.
-  `attribute::update()` on them is silently ignored, so values have to be set
-  through the cluster (`SetMeasuredValue()`), and every endpoint needs a real
-  Min/MaxMeasuredValue range. See the plant monitor's `matter_setup.cpp`.
-  Check the same for PM2.5, Air Quality and HEPA Filter Monitoring.
+- **Custom MAC in eFuse.** Its checksum doesn't validate (confirmed on a
+  3H), so the build sets `CONFIG_ESP_MAC_IGNORE_MAC_CRC_ERROR=y`.
+- **Single core** (confirmed on a 3H): `CONFIG_FREERTOS_UNICORE=y`.
+- **Code-driven clusters.** In esp_matter 1.6, Fan Control, HEPA Filter
+  Monitoring, Air Quality, Temperature and Relative Humidity are served by
+  cluster objects; `attribute::update()` on them is silently ignored, so
+  values are set on the objects, and every measurement endpoint needs a real
+  Min/MaxMeasuredValue range. PM2.5 is still attribute-store backed.
 - **Endpoint IDs are append-only.** New endpoints go at the end so
   already-paired controllers keep their mappings.
 
@@ -266,11 +265,17 @@ main/
   miot_queue.h/.cpp       commands waiting for the MCU's get_down       (host-tested)
   miot_session.h/.cpp     one MCU line in → one reply out               (host-tested)
   purifier_model.h/.cpp   3H/3C property tables + MIoT ↔ Matter conversions (host-tested)
+  wifi_diag.h/.cpp        Wi-Fi failure reasons, hints, repeat filter     (host-tested)
+  ota_policy.h/.cpp       keep/roll-back rule, update-token check         (host-tested)
   purifier_link.h/.cpp    UART driver, link task, poll + heartbeat
   matter_setup.h/.cpp     node, endpoints, Fan Control/HEPA delegates, state → clusters
+  wifi_events.h/.cpp      Wi-Fi connect/disconnect log, WPA3 station options
+  ota_server.h/.cpp       HTTP update server, keep/roll back a new image
+  Kconfig.projbuild       menuconfig: update token
   chip_project_config.h   pairing identity, Basic Information strings
   boot_diag.h/.cpp        reset reason, boot-loop guard (from the plant monitor)
 test/                     host-native Unity tests
+dump/README.md            what the 3H's stock backup showed (no dump files)
 tools/mcu_sim.py          3H/3C STM32 simulator for testing on any ESP32 board
 tools/spake2p_verifier.py pairing-code verifier generator
 partitions_4mb.csv
@@ -491,6 +496,10 @@ git clone -b v6.1 --recursive https://github.com/espressif/esp-idf.git ~/.espres
 source ~/.espressif/v6.1/esp-idf/export.sh
 ```
 
+If ESP-IDF was installed with Espressif's installer (EIM) instead, use its
+activation script, `source ~/.espressif/tools/activate_idf_v6.1.sh`;
+`export.sh` then doesn't put the Xtensa compiler on the path.
+
 ```bash
 idf.py set-target esp32
 ```
@@ -557,9 +566,10 @@ idf.py build
 curl -H "Authorization: Bearer $TOKEN" --data-binary @build/air_purifier_matter.bin http://mi-air-purifier.fritz.box/ota
 ```
 
-- The purifier registers as `mi-air-purifier` with DHCP. On a FRITZ!Box that
-  resolves as `mi-air-purifier.fritz.box`; otherwise use the IP address from
-  your router or the console log.
+- The purifier registers as `mi-air-purifier` with DHCP. A FRITZ!Box serves
+  that as `mi-air-purifier.fritz.box`, but only to computers that use it as
+  their DNS server; otherwise use the purifier's IP address from the
+  router's device list.
 - `curl http://mi-air-purifier.fritz.box/` shows the running version, app
   slot and purifier model.
 - CI's `firmware-esp32` artifact contains `air_purifier_matter.bin` too.
@@ -592,30 +602,31 @@ test vendor ID, which Home Assistant doesn't do for uncertified devices.
 
 ## Roadmap
 
-Checked items are written and host-tested but not yet run on a purifier.
 The detailed phase plan, decisions and risks are in [docs/PLAN.md](docs/PLAN.md).
 
-
-- [ ] Back up a unit; confirm chip variant (single/dual core), flash size, eFuse MAC and stock partition table
+- [x] Back up a 3H; confirm chip variant (single core), flash size, eFuse MAC and stock partition table
 - [ ] Capture a stock MCU↔ESP32 UART log (boot, button presses, app commands, heartbeat)
-- [x] Project skeleton on the plant-monitor stack (ESP-IDF 6.1, esp_matter 1.6, `esp32`, 4 MB single-app partitions, CI, Unity tests, CHANGELOG)
+- [x] Project skeleton on the plant-monitor stack (ESP-IDF 6.1, esp_matter 1.6, `esp32`, CI, Unity tests, CHANGELOG)
 - [x] MIoT UART driver: line framing, `get_down` command queue, `result`/`properties_changed` parsing
 - [x] `net` state reporting tied to Matter/Wi-Fi state (correct LED behaviour)
 - [x] Air Purifier endpoint: Identify + Fan Control
 - [x] HEPA Filter Monitoring incl. reset
 - [x] Air Quality, PM2.5, temperature, humidity endpoints
 - [x] Factory reset via the purifier's own network reset (`restore`)
-- [x] Updates over Wi-Fi (HTTP upload with rollback)
-- [x] 3C support: property table, fan presets, model detection
-- [ ] First run on a real 3H (bridge behaves like stock)
+- [x] Updates over Wi-Fi (HTTP upload with rollback); an update over Wi-Fi not yet tried on the purifier
+- [x] 3C support in code: property table, fan presets, model detection
+- [x] First run on a real 3H: link, model detection, Wi-Fi, pairing with Home Assistant, fan speed
+- [ ] WPA3 with the compatibility fix confirmed on the purifier
 - [ ] First run on a real 3C; tune its Low/Medium/High speeds
-- [ ] Tested with Apple Home, Google Home and Home Assistant
+- [ ] Tested with Apple Home and Google Home
+- [ ] 48 h soak test (free memory, reconnects)
 
 ## Credits and references
 
 Specs:
 
-- [Xiaomi MIoT spec for `zhimi.airpurifier.mb3`](https://home.miot-spec.com/spec/zhimi.airpurifier.mb3):
+- Xiaomi MIoT specs for [`zhimi.airpurifier.mb3`](https://home.miot-spec.com/spec/zhimi.airpurifier.mb3)
+  and [`zhimi.airp.mb4a`](https://home.miot-spec.com/spec/zhimi.airp.mb4a):
   property and action IDs
 - [blakadder/miot](https://github.com/blakadder/miot): English translation of
   Xiaomi's MIoT serial protocol docs
@@ -642,6 +653,8 @@ Stack:
 
 - [psytraxx/esp32-homecontrol-matter](https://github.com/psytraxx/esp32-homecontrol-matter):
   sister project on the same ESP-IDF / esp_matter stack
+- [psytraxx/gravity-cube-espidf](https://github.com/psytraxx/gravity-cube-espidf):
+  model for the updates over Wi-Fi and the FRITZ!Box WPA3 fix
 - [esp-matter](https://github.com/espressif/esp-matter),
   [ESP-IDF](https://github.com/espressif/esp-idf),
   [esptool](https://github.com/espressif/esptool)

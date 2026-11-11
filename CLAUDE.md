@@ -57,14 +57,19 @@ names, API calls or issue numbers.
 ## Build Commands
 
 ```bash
-source ~/.espressif/v6.1/esp-idf/export.sh
+source ~/.espressif/v6.1/esp-idf/export.sh   # or, with an EIM install: source ~/.espressif/tools/activate_idf_v6.1.sh
 idf.py set-target esp32                 # once per fresh checkout
 idf.py build
 idf.py -p /dev/ttyUSB0 flash monitor    # module in bootloader mode (GPIO0–GND)
 cmake -S test -B test/build && cmake --build test/build && ./test/build/test_logic
 python3 tools/mcu_sim.py --port /dev/ttyUSB1   # STM32 stand-in on a devkit
 idf.py -B build-debug -DPURIFIER_LINK_DEBUG=1 build   # log every MCU line (bring-up)
+curl --data-binary @build/air_purifier_matter.bin http://<purifier>/ota   # update over Wi-Fi (+ -H "Authorization: Bearer <token>")
 ```
+
+With an EIM install, `export.sh` leaves the Xtensa compiler off the path
+("xtensa-esp32-elf-gcc is not a full path"); use the activation script.
+`idf.py` is then a shell function, so it can't be wrapped in `timeout`.
 
 Entry point is `app_main()` in [main/app_main.cpp](main/app_main.cpp).
 
@@ -182,6 +187,13 @@ one model must not renumber the other model's.
   **before** `node::create()`; changes go through
   `GlobalNotifyHardwareFaultsDetect()` so the attribute report and the
   `HardwareFaultChange` event fire. Mapping in `hardware_faults()`.
+- **`PercentCurrent` follows the setting.** Home Assistant's fan slider shows
+  `PercentCurrent`, not `PercentSetting`. `purifier::percent_current()`
+  reports the set speed for named levels and fine speeds, and the motor rpm
+  only in Auto and Sleep; `refresh_fan()` prefers the cluster's own
+  `PercentSetting` when the purifier runs at the cluster's `SpeedSetting`.
+  Deriving it from the rpm made the slider snap back (fixed after the first
+  3H test).
 - **3C air quality** is derived from PM2.5 (`air_quality_from_pm25()`), so a
   PM2.5 change on the 3C also raises `CHANGED_AIR_QUALITY`.
 - **Null attributes during commissioning.** `kServerReady` pushes everything
@@ -192,8 +204,10 @@ one model must not renumber the other model's.
 - **The MCU is the master.** The module never speaks first; it hands over one
   queued command per `get_down`. Every received line gets exactly one reply.
 - **`result` parsing depends on what was handed over last** (get: value after a
-  0 code; set: no value; action: `siid aiid code ...`). `Session` tracks this in
-  `m_pending`; don't reorder replies.
+  0 code; set: no value on the wire; action: `siid aiid code ...`). `Session`
+  tracks this in `m_pending`; don't reorder replies. An accepted set (code 0)
+  is reported through `on_properties` with the value that was sent
+  (`m_pending_set_*`), so the tracked state follows at once.
 - **Network state jumps the queue.** `announce_net_state()` puts
   `MIIO_net_change <state>` at the front whenever the state changes; the MCU
   drives the Wi-Fi LED from it and from `net`.
@@ -221,7 +235,8 @@ one model must not renumber the other model's.
   the stored config at start-up, at `STA_START` and after each failed join;
   right after commissioning the first join can therefore still fail once.
   Fallback if a router misbehaves anyway: `CONFIG_ESP_WIFI_ENABLE_WPA3_SAE=n`
-  (WPA2 only, confirmed working on that FRITZ!Box).
+  (WPA2 only, confirmed working on that FRITZ!Box). The compatibility-flag
+  path itself is not yet confirmed on the purifier.
 - **`sdkconfig.defaults` changes need a fresh `sdkconfig`**: an existing
   `sdkconfig` wins over the defaults file. Delete it (and `build/`) after
   changing defaults.
@@ -256,20 +271,29 @@ one model must not renumber the other model's.
   of the ROM bootloader unless given `--after no-reset`; the README's commands
   pass it.
 
-## Still To Verify On Hardware (Phase 0)
+## Hardware Status
 
-Confirmed on a 3H (`dump/README.md`): single core, 4 MB flash, invalid MAC
-eFuse CRC, no flash encryption or secure boot. First run of this firmware on
-the 3H (board powered from the USB adapter only): the link on UART2
-GPIO17/GPIO16 at 115200 works; the MCU polls `get_down` every ~180 ms,
-answers `MIIO_mcu_version_req` (`0017`), sends `properties_changed` on its
-own, and did **not** announce `model` (detection ran on the probe). Right
-after boot it answers several properties (2.2, 2.5, 3.6, 3.7, 3.8, 2.1, 2.4)
-with `-4001` until it has settled; the next poll returns them. Still open:
-the heartbeat (13.9 on the 3H, 9.4 on the 3C, = 60 every 60 s); the
-filter-reset action arguments (`4.1` with `3 0`); what favorite level 0 means
-(3H); the 10 % filter-warning threshold; the polarity of 15.5 (filter door);
-behaviour on mains with the fan running.
+**Confirmed on a 3H** (`dump/README.md` and bring-up logs, board powered
+from the USB adapter): single core, 4 MB flash, invalid MAC eFuse CRC, no
+flash encryption or secure boot. The link on UART2 GPIO17/GPIO16 at 115200
+works; the MCU polls `get_down` every ~180 ms, answers
+`MIIO_mcu_version_req` (`0017`), sends `properties_changed` on its own, and
+did **not** announce `model` (detection ran on the probe). Right after boot
+it answers several properties (2.2, 2.5, 3.6, 3.7, 3.8, 2.1, 2.4) with
+`-4001` until it has settled; the next poll returns them. Joins a FRITZ!Box
+4040 with WPA2, commissions with Home Assistant (Android), and power, presets
+and the speed slider work.
+
+**Still open:** the heartbeat (13.9 on the 3H, 9.4 on the 3C, = 60 every
+60 s); the filter-reset action arguments (`4.1` with `3 0`); what favorite
+level 0 means (3H); the 10 % filter-warning threshold; the polarity of 15.5
+(filter door: logged "open" on a unit under test); the WPA3 compatibility
+flag; an update over Wi-Fi, including a rollback; behaviour on mains with
+the fan running. **Suspected:** soon after a restart a fan command went to
+the MCU without any controller write (`Fan Control write: mode=2 percent=66
+speed=10`, rejected with codes 1 / -4004), probably the Fan Control
+cluster restoring its saved FanMode at start-up and notifying the delegate;
+confirm with a full boot log before fixing.
 3C only: that mode 2 is Favorite, its accepted rpm range, comfortable
 Low/Medium/High presets. On the 3C, GPIO0 isn't on the header (short it on
 the module). Update `purifier_model.cpp`, `board_pins.h`,
