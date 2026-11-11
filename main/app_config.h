@@ -25,6 +25,14 @@ inline constexpr uint32_t MODEL_DETECT_TIMEOUT_MS = 15000;
 
 // ── MCU link ────────────────────────────────────────────────────────────────
 
+// 1 = log every line to and from the MCU on the console ("<- ..." / "-> ...")
+// and each property it reports. For bring-up and protocol captures; noisy, as
+// the MCU polls several times a second. Enable without editing the file:
+//   idf.py -DPURIFIER_LINK_DEBUG=1 build
+#ifndef PURIFIER_LINK_DEBUG
+#define PURIFIER_LINK_DEBUG 0
+#endif
+
 // How often all mapped properties are re-read from the MCU, as a safety net
 // for changes the MCU doesn't report on its own.
 inline constexpr uint32_t POLL_INTERVAL_MS = 30000;

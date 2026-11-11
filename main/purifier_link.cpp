@@ -1,3 +1,9 @@
+// Compile the per-line MCU log in when PURIFIER_LINK_DEBUG is set (see
+// app_config.h). Must come before esp_log.h, which reads LOG_LOCAL_LEVEL.
+#if defined(PURIFIER_LINK_DEBUG) && PURIFIER_LINK_DEBUG
+#define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
+#endif
+
 #include "purifier_link.h"
 
 #include <atomic>
@@ -284,6 +290,9 @@ void purifier_link_start(const PurifierLinkCallbacks &callbacks)
         s_session->queue_get(purifier::probe_properties());
     }
 
+#if PURIFIER_LINK_DEBUG
+    esp_log_level_set(TAG, ESP_LOG_DEBUG);
+#endif
     xTaskCreate(link_task, "purifier_link", LINK_TASK_STACK, nullptr, LINK_TASK_PRIORITY, nullptr);
     ESP_LOGI(TAG, "MCU link on UART%d (TX GPIO%d, RX GPIO%d, %d baud)", PURIFIER_UART_NUM, PIN_MCU_TX, PIN_MCU_RX, PURIFIER_UART_BAUD);
 }

@@ -2,6 +2,14 @@
 
 Entries are grouped by date, newest first.
 
+## 2026-11-11
+
+### Added
+- First run on a real 3H: the firmware talks to the purifier's controller, recognises the 3H on its own and reads power, mode, PM2.5, temperature, humidity and filter life. The controller also reports changes by itself, so the Matter values follow the purifier without waiting for the next check.
+- A debug build option that prints every message exchanged with the purifier's controller, for bringing up new units and checking the protocol.
+
+---
+
 ## 2026-11-10
 
 ### Added

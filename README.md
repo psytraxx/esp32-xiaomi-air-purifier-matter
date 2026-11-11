@@ -594,3 +594,7 @@ the Wi-Fi module. You do this at your own risk.
 ## License
 
 TBD.
+
+
+Manual pairing code: 21365748815
+QR code payload: MT:A9801KQS02DWBE78Q10

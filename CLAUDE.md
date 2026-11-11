@@ -64,6 +64,7 @@ idf.py build
 idf.py -p /dev/ttyUSB0 flash monitor    # module in bootloader mode (GPIO0–GND)
 cmake -S test -B test/build && cmake --build test/build && ./test/build/test_logic
 python3 tools/mcu_sim.py --port /dev/ttyUSB1   # STM32 stand-in on a devkit
+idf.py -B build-debug -DPURIFIER_LINK_DEBUG=1 build   # log every MCU line (bring-up)
 ```
 
 Entry point is `app_main()` in [main/app_main.cpp](main/app_main.cpp).
@@ -223,11 +224,17 @@ one model must not renumber the other model's.
 ## Still To Verify On Hardware (Phase 0)
 
 Confirmed on a 3H (`dump/README.md`): single core, 4 MB flash, invalid MAC
-eFuse CRC, no flash encryption or secure boot. Still open: UART pins;
+eFuse CRC, no flash encryption or secure boot. First run of this firmware on
+the 3H (board powered from the USB adapter only): the link on UART2
+GPIO17/GPIO16 at 115200 works; the MCU polls `get_down` every ~180 ms,
+answers `MIIO_mcu_version_req` (`0017`), sends `properties_changed` on its
+own, and did **not** announce `model` (detection ran on the probe). Right
+after boot it answers several properties (2.2, 2.5, 3.6, 3.7, 3.8, 2.1, 2.4)
+with `-4001` until it has settled; the next poll returns them. Still open:
 the heartbeat (13.9 on the 3H, 9.4 on the 3C, = 60 every 60 s); the
 filter-reset action arguments (`4.1` with `3 0`); what favorite level 0 means
-(3H); the 10 % filter-warning threshold; whether the MCU reports property
-changes on its own or only on polls; whether it announces `model` unprompted.
+(3H); the 10 % filter-warning threshold; the polarity of 15.5 (filter door);
+behaviour on mains with the fan running.
 3C only: that mode 2 is Favorite, its accepted rpm range, comfortable
 Low/Medium/High presets. On the 3C, GPIO0 isn't on the header (short it on
 the module). Update `purifier_model.cpp`, `board_pins.h`,
