@@ -1,0 +1,10 @@
+# WPA3 variant: overlay on sdkconfig.defaults. Lets the station use WPA3 (SAE)
+# where the network offers it, with the handshake defaults restored by
+# main/wifi_events.cpp. Build with its own build dir and sdkconfig:
+#
+#   idf.py -B build-wpa3 -D SDKCONFIG=build-wpa3/sdkconfig \
+#          -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.wpa3" build
+#
+# Not yet confirmed on a mixed WPA2/WPA3 network; the default build stays
+# WPA2-only until it is.
+CONFIG_ESP_WIFI_ENABLE_WPA3_SAE=y

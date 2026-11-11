@@ -26,6 +26,16 @@ static void test_reason_hints(void)
     TEST_ASSERT_NULL(reason_hint(8));
 }
 
+static void test_security_mismatch(void)
+{
+    TEST_ASSERT_TRUE(is_security_mismatch(17));
+    TEST_ASSERT_TRUE(is_security_mismatch(20));
+    TEST_ASSERT_TRUE(is_security_mismatch(209));
+    TEST_ASSERT_FALSE(is_security_mismatch(15));  // wrong password
+    TEST_ASSERT_FALSE(is_security_mismatch(201)); // not found
+    TEST_ASSERT_FALSE(is_security_mismatch(200)); // beacon timeout
+}
+
 static void test_authmode_names(void)
 {
     TEST_ASSERT_EQUAL_STRING("WPA2_PSK", authmode_name(3));
@@ -76,6 +86,7 @@ void run_wifi_diag_tests(void)
 {
     RUN_TEST(test_reason_names);
     RUN_TEST(test_reason_hints);
+    RUN_TEST(test_security_mismatch);
     RUN_TEST(test_authmode_names);
     RUN_TEST(test_filter_logs_first_and_every_nth);
     RUN_TEST(test_filter_reason_change_ends_run);
