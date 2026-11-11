@@ -207,6 +207,13 @@ one model must not renumber the other model's.
   3H, see [dump/README.md](dump/README.md)).
 - **`CONFIG_ESP_MAC_IGNORE_MAC_CRC_ERROR=y`**: the MAC eFuse checksum is
   invalid (confirmed on a 3H); without this the MAC read fails at boot.
+- **WPA2 only** (`CONFIG_ESP_WIFI_ENABLE_WPA3_SAE=n`): on a mixed WPA2/WPA3
+  network the 3H kept failing the key handshake with SAE enabled. The CHIP
+  ESP32 driver leaves all station security fields at defaults, so this
+  Kconfig is the switch. Pure WPA3 networks are not supported.
+- **`sdkconfig.defaults` changes need a fresh `sdkconfig`**: an existing
+  `sdkconfig` wins over the defaults file. Delete it (and `build/`) after
+  changing defaults.
 - **No power management / light sleep** — mains powered; don't add PM locks.
 - **Partition table**: [partitions_4mb.csv](partitions_4mb.csv), single factory
   app (D3, OTA, is open). `nvs` holds Wi-Fi, Matter fabrics and boot_diag.

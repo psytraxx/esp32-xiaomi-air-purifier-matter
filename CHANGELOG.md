@@ -8,6 +8,9 @@ Entries are grouped by date, newest first.
 - First run on a real 3H: the firmware talks to the purifier's controller, recognises the 3H on its own and reads power, mode, PM2.5, temperature, humidity and filter life. The controller also reports changes by itself, so the Matter values follow the purifier without waiting for the next check.
 - A debug build option that prints every message exchanged with the purifier's controller, for bringing up new units and checking the protocol.
 
+### Fixed
+- The purifier should now be able to join mixed WPA2/WPA3 Wi-Fi networks (still to confirm on the purifier). It kept dropping out during the Wi-Fi password exchange; it now always connects with WPA2. Networks that only allow WPA3 aren't supported.
+
 ---
 
 ## 2026-11-10
