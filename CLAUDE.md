@@ -77,6 +77,8 @@ Entry point is `app_main()` in [main/app_main.cpp](main/app_main.cpp).
 | `main/miot_queue.h/.cpp` | Commands waiting for the MCU's `get_down`: FIFO, set-merge, get-dedupe, bounded | yes |
 | `main/miot_session.h/.cpp` | One MCU line in → one reply out; hooks for properties, set failures, events, `restore`, `net`, `time`, `mac` | yes |
 | `main/purifier_model.h/.cpp` | Per-model `Profile`s (3H, 3C), model detection/decision rules, tracked `State`, all MIoT ↔ Matter conversions (the tables in docs/PLAN.md) | yes |
+| `main/wifi_diag.h/.cpp` | Wi-Fi disconnect reason / security-mode names (ESP-IDF v6.1 values), hints, repeat filter | yes |
+| `main/wifi_events.h/.cpp` | Logs station connects/disconnects via `wifi_diag` (the CHIP SDK log level hides them); registered after `esp_matter::start()` | no |
 | `main/purifier_link.h/.cpp` | UART2 driver + link task: line framing, session under a recursive mutex, 30 s poll, 60 s heartbeat, MCU-silence detection | no |
 | `main/matter_setup.h/.cpp` | Node + endpoints, Fan Control / HEPA delegates, state → cluster refresh on the CHIP task, commissioning + Wi-Fi events, SNTP | no |
 | `main/app_main.cpp` | Boot order (boot_diag → link → model choice → Matter), remembered model in NVS, restart on a model change, `restore` timer, heap log loop | no |

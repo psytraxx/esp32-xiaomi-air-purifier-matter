@@ -39,6 +39,7 @@
 #include "boot_diag.h"
 #include "purifier_link.h"
 #include "purifier_model.h"
+#include "wifi_events.h"
 
 static const char *TAG = "matter_setup";
 
@@ -727,6 +728,7 @@ void matter_setup(EventGroupHandle_t events, purifier::Model model)
         esp_restart();
     }
     ESP_LOGI(TAG, "Matter stack started");
+    wifi_events_start();
 }
 
 void matter_factory_reset()

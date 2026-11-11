@@ -8,8 +8,10 @@ idf_component_register(
         "miot_queue.cpp"
         "miot_session.cpp"
         "purifier_model.cpp"
+        "wifi_diag.cpp"
+        "wifi_events.cpp"
     INCLUDE_DIRS "."
-    REQUIRES esp_driver_uart esp_netif esp_timer nvs_flash
+    REQUIRES esp_driver_uart esp_event esp_netif esp_timer esp_wifi nvs_flash
 )
 
 # Purifier model: detected at runtime by default. Force one with
