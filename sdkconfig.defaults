@@ -39,12 +39,11 @@ CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
 CONFIG_ENABLE_WIFI_AP=n
 CONFIG_ESP_WIFI_SOFTAP_SUPPORT=n
 
-# WPA2 only: without WPA3 (SAE) support the station joins mixed WPA2/WPA3
-# ("transition mode") networks with WPA2. With SAE enabled a 3H failed every
-# key handshake on a FRITZ!Box 4040 in mixed mode (reason 17,
-# IE_IN_4WAY_DIFFERS); with it off it connects at once. Pure WPA3 networks
-# can't be joined.
-CONFIG_ESP_WIFI_ENABLE_WPA3_SAE=n
+# WPA3 (SAE) on. Routers with a broken WPA3 compatibility mode (FRITZ!Box
+# 4040: every join failed with reason 17, IE_IN_4WAY_DIFFERS) are handled by
+# ignoring the compatibility elements, set on the station config in
+# main/wifi_events.cpp; they're then joined with WPA2.
+CONFIG_ESP_WIFI_ENABLE_WPA3_SAE=y
 
 # lwIP as in the esp-matter Wi-Fi examples.
 CONFIG_LWIP_IPV6_AUTOCONFIG=y

@@ -210,17 +210,18 @@ one model must not renumber the other model's.
   3H, see [dump/README.md](dump/README.md)).
 - **`CONFIG_ESP_MAC_IGNORE_MAC_CRC_ERROR=y`**: the MAC eFuse checksum is
   invalid (confirmed on a 3H); without this the MAC read fails at boot.
-- **WPA2 only** (`CONFIG_ESP_WIFI_ENABLE_WPA3_SAE=n`): with SAE enabled a
-  3H failed every key handshake on a FRITZ!Box 4040 in WPA2/WPA3 mixed mode
-  (reason 17 `IE_IN_4WAY_DIFFERS`, strong signal), even with the station's
-  SAE/PMF fields restored to ESP-IDF defaults (the CHIP driver `memset`s
-  them). Likely cause, from gravity-cube-espidf: that FRITZ!Box advertises a
-  WPA3 compatibility (RSN override) element in its beacon but leaves it out
-  of handshake message 3; that project sets
-  `wifi_config_t.sta.disable_wpa3_compatible_mode = 1`. Here the CHIP driver
-  owns the station config, so WPA3 stays off instead. With SAE off it joins the same network at once (`security
-  WPA2_PSK`) and commissions with Home Assistant. Pure WPA3 networks are
-  not supported.
+- **WPA3 on, compatibility elements ignored** (`CONFIG_ESP_WIFI_ENABLE_WPA3_SAE=y`
+  plus `wifi_config_t.sta.disable_wpa3_compatible_mode = 1`, as in
+  gravity-cube-espidf). The FRITZ!Box 4040 advertises a WPA3 compatibility
+  (RSN override) element in its beacon but leaves it out of handshake
+  message 3; with SAE on and that element honoured, a 3H failed every join
+  with reason 17 `IE_IN_4WAY_DIFFERS`. The CHIP ESP32 driver `memset`s the
+  station config when it stores credentials, so `apply_station_options()` in
+  `wifi_events.cpp` sets the flag (and `sae_pwe_h2e = WPA3_SAE_PWE_BOTH`) on
+  the stored config at start-up, at `STA_START` and after each failed join;
+  right after commissioning the first join can therefore still fail once.
+  Fallback if a router misbehaves anyway: `CONFIG_ESP_WIFI_ENABLE_WPA3_SAE=n`
+  (WPA2 only, confirmed working on that FRITZ!Box).
 - **`sdkconfig.defaults` changes need a fresh `sdkconfig`**: an existing
   `sdkconfig` wins over the defaults file. Delete it (and `build/`) after
   changing defaults.

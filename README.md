@@ -227,7 +227,7 @@ so tooling, conventions and lessons learned carry over:
 | ESP-IDF | **v6.1** (`idf: ">=6.1.0,<6.2.0"` in `main/idf_component.yml`) |
 | Matter | **`espressif/esp_matter` 1.6.x** managed component; endpoints built with the `esp_matter::endpoint::*::create()` C++ API |
 | Target | **`esp32`** (classic Xtensa). Install the toolchain with `./install.sh esp32`. |
-| Wi-Fi security | **WPA2** by default (also on mixed WPA2/WPA3 networks): the module failed the WPA3 key handshake on a mixed network, so WPA3 is off and pure WPA3 networks can't be joined. |
+| Wi-Fi security | **WPA2 and WPA3**, including WPA3-only networks. Routers with a broken WPA3 compatibility mode (e.g. FRITZ!Box 4040) are joined with WPA2, as in gravity-cube-espidf. |
 | Transport | **Matter over Wi-Fi**, BLE (NimBLE) for commissioning only. The classic ESP32 has no 802.15.4 radio, so Thread isn't possible and no Thread Border Router is needed. |
 | Power model | Mains powered and always on: no ICD, no deep sleep (unlike the plant monitor) |
 | Partitions | Custom 4 MB table with two app slots for [updates over Wi-Fi](#updates-over-wi-fi), plus NVS for Wi-Fi, pairing and settings. |
@@ -466,7 +466,7 @@ the controller will show the purifier as unavailable. Remove it there.
 | `Failed to connect to ESP32: No serial data received` | TX/RX swapped, `GPIO0` not shorted *while powering on*, or wrong port. Swap TX/RX, re-short `GPIO0`, replug. |
 | Dumps differ between runs | Unreliable link: lower `--baud`, use shorter wires, try another adapter. |
 | Board resets or browns out (`brownout detector was triggered`) | The adapter's 3.3 V regulator can't supply Wi-Fi current peaks. Fine for flashing; for test runs use an adapter with a stronger 3.3 V rail. |
-| Wi-Fi joins and drops again within a fraction of a second (`run -> init` in the log, repeating) | Look for the `wifi: Disconnected from ...` line: it names the reason and suggests a fix. Usually the key handshake fails. The firmware joins with WPA2; make sure the network offers WPA2 (WPA2-only or WPA2/WPA3 mixed) and not WPA3 only. If it still fails, turn off 802.11r (fast roaming) and set PMF to optional on the 2.4 GHz network. |
+| Wi-Fi joins and drops again within a fraction of a second (`run -> init` in the log, repeating) | Look for the `wifi: Disconnected from ...` line: it names the reason and suggests a fix. Usually the key handshake fails. Reason 17 should only appear once: the firmware then ignores the router's WPA3 compatibility elements and joins on the next try. If it keeps failing, turn off 802.11r (fast roaming) and set PMF to optional on the 2.4 GHz network. |
 | USB adapter disappears when the board's 3.3 V is connected | The board pulls the adapter's regulator down. Power the board from a separate 3.3 V supply (≥ 1 A) with GND shared, and leave the adapter's 3.3 V pin unconnected. |
 | The second esptool command can't connect | esptool reset the chip out of bootloader mode. Use `--after no-reset`, or power-cycle with `GPIO0`–`GND` still shorted. |
 | Our firmware boot-loops or won't commission | Capture the log with `idf.py monitor`, then restore the backup if needed. |
