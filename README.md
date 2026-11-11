@@ -425,7 +425,13 @@ esptool --port /dev/ttyUSB0 --after no-reset --baud 460800 write-flash 0 air_pur
 
 The pairing code is set per build in `main/chip_project_config.h`. The CI
 image uses the code committed there, so anyone with that image shares the
-same code; build your own to change it.
+same code; build your own to change it. With the committed values the
+firmware prints:
+
+| | |
+|---|---|
+| Manual pairing code | `21365748815` |
+| QR code payload | `MT:A9801KQS02DWBE78Q10` |
 
 Then remove the `GPIO0`–`GND` short and power-cycle the board by unplugging
 and replugging the adapter. The serial log prints the Matter QR code and
@@ -596,7 +602,3 @@ the Wi-Fi module. You do this at your own risk.
 ## License
 
 TBD.
-
-
-Manual pairing code: 21365748815
-QR code payload: MT:A9801KQS02DWBE78Q10
