@@ -16,4 +16,3 @@ __pycache__/
 stock_*
 *.dump
 build-debug/
-build-wpa3/

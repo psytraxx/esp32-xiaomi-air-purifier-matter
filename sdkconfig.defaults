@@ -30,9 +30,10 @@ CONFIG_ENABLE_WIFI_AP=n
 CONFIG_ESP_WIFI_SOFTAP_SUPPORT=n
 
 # WPA2 only: without WPA3 (SAE) support the station joins mixed WPA2/WPA3
-# ("transition mode") networks with WPA2. With SAE enabled the first 3H was
-# dropped in the key handshake on such a network, over and over
-# (`run -> init (0x1100)`). Pure WPA3 networks can't be joined.
+# ("transition mode") networks with WPA2. With SAE enabled a 3H failed every
+# key handshake on a FRITZ!Box 4040 in mixed mode (reason 17,
+# IE_IN_4WAY_DIFFERS); with it off it connects at once. Pure WPA3 networks
+# can't be joined.
 CONFIG_ESP_WIFI_ENABLE_WPA3_SAE=n
 
 # lwIP as in the esp-matter Wi-Fi examples.

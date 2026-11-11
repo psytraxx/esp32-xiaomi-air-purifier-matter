@@ -227,7 +227,7 @@ so tooling, conventions and lessons learned carry over:
 | ESP-IDF | **v6.1** (`idf: ">=6.1.0,<6.2.0"` in `main/idf_component.yml`) |
 | Matter | **`espressif/esp_matter` 1.6.x** managed component; endpoints built with the `esp_matter::endpoint::*::create()` C++ API |
 | Target | **`esp32`** (classic Xtensa). Install the toolchain with `./install.sh esp32`. |
-| Wi-Fi security | **WPA2** by default (also on mixed WPA2/WPA3 networks): the module failed the WPA3 key handshake on a mixed network, so WPA3 is off and pure WPA3 networks can't be joined. A **WPA3 build** (`sdkconfig.wpa3`, see [Building](#building)) re-enables it with corrected handshake settings, but it still failed on a FRITZ!Box 4040 in mixed mode, so it's only worth trying on other routers. |
+| Wi-Fi security | **WPA2** by default (also on mixed WPA2/WPA3 networks): the module failed the WPA3 key handshake on a mixed network, so WPA3 is off and pure WPA3 networks can't be joined. |
 | Transport | **Matter over Wi-Fi**, BLE (NimBLE) for commissioning only. The classic ESP32 has no 802.15.4 radio, so Thread isn't possible and no Thread Border Router is needed. |
 | Power model | Mains powered and always on: no ICD, no deep sleep (unlike the plant monitor) |
 | Partitions | Custom 4 MB table, single factory app plus NVS. The 1.4 MB firmware would fit two OTA slots; until that's decided (D3), updates are by serial flash. |
@@ -499,13 +499,6 @@ idf.py -p /dev/ttyUSB0 flash monitor
 
 ```bash
 cmake -S test -B test/build && cmake --build test/build && ./test/build/test_logic
-```
-
-To try WPA3 (instead of the default WPA2-only), build the WPA3 variant in
-its own directory:
-
-```bash
-idf.py -B build-wpa3 -D SDKCONFIG=build-wpa3/sdkconfig -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.wpa3" build
 ```
 
 For flashing, the module must be in bootloader mode (`GPIO0`↔`GND` shorted)
