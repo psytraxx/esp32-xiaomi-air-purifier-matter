@@ -2,7 +2,6 @@
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GPIO assignments of the 3H's ESP-WROOM-32D module. Single source of truth.
-// From community reverse engineering; to verify on hardware (Phase 0).
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include "driver/uart.h"

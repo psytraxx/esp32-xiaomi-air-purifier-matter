@@ -24,7 +24,7 @@ static wifi_diag::DisconnectFilter s_filter;
 //     elements and join with the AP's base RSN element. The FRITZ!Box 4040
 //     advertises an RSNXE override in its beacon but leaves it out of
 //     handshake message 3, which fails every join with reason 17
-//     (IE_IN_4WAY_DIFFERS); same fix as gravity-cube-espidf. Such routers
+//     (IE_IN_4WAY_DIFFERS). Such routers
 //     are then joined with WPA2; WPA3 is still used where the base element
 //     offers it, and on WPA3-only networks.
 //   - sae_pwe_h2e: both SAE methods, ESP-IDF's normal default (zeroing leaves

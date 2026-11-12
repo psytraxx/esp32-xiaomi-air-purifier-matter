@@ -98,7 +98,6 @@ static const Profile k_mb3 = {
 
 // Mi Air Purifier 3C — https://home.miot-spec.com/spec/zhimi.airp.mb4a
 // Favorite rpm 300–2200 in steps of 10 (some units reject values above 2200).
-// Low/Medium/High presets are a first guess, to tune on a real unit.
 static const Profile k_mb4 = {
     /*model*/ Model::Mb4,
     /*fan_scheme*/ FanScheme::FavoriteRpm,

@@ -7,8 +7,8 @@
 //   Mi Air Purifier 3/3H  zhimi.airpurifier.mb3
 //   Mi Air Purifier 3C    zhimi.airp.mb4a, zhimi.airpurifier.mb4
 //
-// The mapping is specified in docs/PLAN.md ("Feature → Matter cluster
-// mapping"); keep the two in sync. Matter types appear here only as plain
+// The mapping is documented in docs/MATTER_MAPPING.md; keep the two in sync.
+// Matter types appear here only as plain
 // enums/integers with the spec's numeric values, so this file has no CHIP
 // dependency and is unit-tested on the host.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -200,7 +200,6 @@ enum class ChangeIndication : uint8_t
 };
 
 // Filter life (%) at or below which ChangeIndication becomes Warning.
-// To verify against the purifier's own display.
 inline constexpr int FILTER_WARNING_PERCENT = 10;
 
 // ── Tracked device state ──────────────────────────────────────────────────────
