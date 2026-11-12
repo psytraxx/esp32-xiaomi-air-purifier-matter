@@ -668,4 +668,10 @@ the Wi-Fi module. You do this at your own risk.
 
 ## License
 
-TBD.
+[MIT](LICENSE) for the code in this repository.
+
+Firmware images built from it also contain third-party components under
+their own licenses, mainly Apache-2.0 (ESP-IDF, esp-matter, the Matter SDK,
+NimBLE), MIT (FreeRTOS) and BSD (lwIP), plus Espressif's binary Wi-Fi and
+Bluetooth libraries. Whoever passes a firmware image on should include
+those licenses and notices.

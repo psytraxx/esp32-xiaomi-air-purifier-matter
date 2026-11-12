@@ -2,6 +2,13 @@
 
 Entries are grouped by date, newest first.
 
+## 2026-11-12
+
+### Added
+- The project is now released under the MIT license.
+
+---
+
 ## 2026-11-11
 
 ### Added
