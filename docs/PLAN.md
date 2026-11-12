@@ -36,7 +36,7 @@ Phases 1 and 2 don't need the purifier and run in parallel with Phase 0.
 | D2 | Child lock, buzzer, display brightness | **Not exposed.** They stay controllable on the device itself. |
 | D3 | Firmware updates | **Updates over Wi-Fi by HTTP upload** (`POST /ota`, optional token), as in gravity-cube-espidf, with two 1.94 MB app slots and bootloader rollback. Not Matter OTA: Home Assistant only serves updates for devices in the production DCL. |
 | D4 | Pairing code and name | **Per unit, in menuconfig** (*Air purifier*: device name, discriminator, passcode). The firmware derives the SPAKE2+ verifier at boot, so no tool is needed; invalid values fail the build. Replaces the per-build values in `chip_project_config.h`, with the same defaults. |
-| D5 | License | Open |
+| D5 | License | **MIT** ([LICENSE](../LICENSE)) for this repository's code. Built images also contain third-party components under their own licenses (mostly Apache-2.0); see the README. |
 | D6 | Mi Air Purifier 3C | **Same firmware image as the 3H.** One property table per model; the model is announced by the MCU or told apart by a probe, remembered in NVS, and can be forced at build time. Endpoints 1–2 are identical on both; temperature/humidity (3–4) exist on the 3H only. See [3C mapping](#mi-air-purifier-3c). |
 
 ## Feature → Matter cluster mapping

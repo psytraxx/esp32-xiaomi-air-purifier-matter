@@ -6,6 +6,7 @@ Entries are grouped by date, newest first.
 
 ### Added
 - Each purifier can now have its own pairing code and its own name, set in the build menu (menuconfig) under "Air purifier". This lets a 3H and a 3C be paired side by side and tells them apart in Home Assistant. Without a name, a purifier calls itself "Air Purifier 3H" or "Air Purifier 3C". The defaults keep today's pairing code, so a purifier that's already paired stays paired.
+- The project is now released under the MIT license.
 
 ### Removed
 - The helper script for working out the pairing verifier: the firmware now works it out itself from the pairing code.
