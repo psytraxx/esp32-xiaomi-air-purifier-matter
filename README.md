@@ -596,15 +596,21 @@ idf.py build
 ```
 
 ```bash
-curl -H "Authorization: Bearer $TOKEN" --data-binary @build/air_purifier_matter.bin http://mi-air-purifier.fritz.box/ota
+curl -H "Authorization: Bearer $TOKEN" --data-binary @build/air_purifier_matter.bin http://mi-air-purifier-3h-2a20.fritz.box/ota
 ```
 
-- The purifier registers as `mi-air-purifier` with DHCP. A FRITZ!Box serves
-  that as `mi-air-purifier.fritz.box`, but only to computers that use it as
-  their DNS server; otherwise use the purifier's IP address from the
-  router's device list.
-- `curl http://mi-air-purifier.fritz.box/` shows the running version, app
-  slot and purifier model.
+- Each purifier registers its own name with DHCP. With a device name set
+  in menuconfig (*Air purifier* → *Device name*) it is that name in
+  host-name form: "Air Purifier Bedroom" becomes `air-purifier-bedroom`.
+  Without one it is `mi-air-purifier`, the model and the last four digits
+  of the MAC address, for example `mi-air-purifier-3h-2a20`. Give each
+  purifier a different name, or none, so an update can't land on the
+  wrong one.
+  A FRITZ!Box serves it as `<name>.fritz.box`, but only to computers that
+  use it as their DNS server; otherwise use the purifier's IP address from
+  the router's device list. The serial log prints the name ("Host name: …").
+- `curl http://mi-air-purifier-3h-2a20.fritz.box/` shows the running
+  version, app slot and purifier model: check it before updating.
 - CI's `firmware-esp32` artifact contains `air_purifier_matter.bin` too.
 - Set an update token with `idf.py menuconfig` → *Air purifier* → *Update
   token* and pass it as `$TOKEN`. Without a token, anyone on your network can

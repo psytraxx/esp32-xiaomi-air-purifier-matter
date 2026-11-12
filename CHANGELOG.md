@@ -7,6 +7,7 @@ Entries are grouped by date, newest first.
 ### Added
 - Each purifier can now have its own pairing code and its own name, set in the build menu (menuconfig) under "Air purifier". This lets a 3H and a 3C be paired side by side and tells them apart in Home Assistant. Without a name, a purifier calls itself "Air Purifier 3H" or "Air Purifier 3C". The defaults keep today's pairing code, so a purifier that's already paired stays paired.
 - The project is now released under the MIT license.
+- Each purifier now shows up on the router under its own name: the device name set in the build menu (for example "air-purifier-3c"), or, without one, its model and the end of its network address (for example "mi-air-purifier-3h-2a20"). Before, every purifier was called "mi-air-purifier", so with two of them an update over Wi-Fi could reach the wrong one.
 
 ### Fixed
 - The purifier no longer changes its fan setting by itself right after a restart. Matter used to hand back the last fan setting it had saved, as if Home Assistant had asked for it; fan changes are now only passed on once the purifier has reported its real state.

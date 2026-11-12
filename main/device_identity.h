@@ -57,4 +57,15 @@ std::string node_label(std::string_view configured, std::string_view base, purif
 bool should_write_label(std::string_view current, std::string_view desired, std::string_view last_written,
                         std::string_view automatic);
 
+// Longest host name this firmware hands to DHCP.
+inline constexpr size_t HOSTNAME_MAX = 32;
+
+// Network (DHCP) host name. From the menuconfig device name when one is set,
+// turned into a host name: lower case, letters and digits kept, everything
+// else (spaces, umlauts) becomes one '-', e.g. "Air Purifier Bedroom" →
+// "air-purifier-bedroom". Without a name, or if nothing usable is left:
+// "<base>-<model>-<last two MAC bytes>", e.g. "mi-air-purifier-3c-132f", so
+// unnamed units never share a name. At most HOSTNAME_MAX characters.
+std::string hostname(std::string_view configured, std::string_view base, purifier::Model model, const uint8_t mac[6]);
+
 } // namespace identity

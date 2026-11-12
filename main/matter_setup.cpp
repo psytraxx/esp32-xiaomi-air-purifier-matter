@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "esp_log.h"
+#include "esp_mac.h"
 #include "esp_netif_sntp.h"
 #include "esp_system.h"
 #include "nvs.h"
@@ -805,7 +806,9 @@ void matter_setup(EventGroupHandle_t events, purifier::Model model)
         esp_restart();
     }
     ESP_LOGI(TAG, "Matter stack started");
-    wifi_events_start();
+    uint8_t mac[6] = {};
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    wifi_events_start(identity::hostname(CONFIG_PURIFIER_DEVICE_NAME, CONFIG_LWIP_LOCAL_HOSTNAME, s_model, mac).c_str());
 }
 
 void matter_factory_reset()

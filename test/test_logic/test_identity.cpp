@@ -62,8 +62,30 @@ static void test_should_write_label(void)
     TEST_ASSERT_TRUE(should_write_label("Bedroom purifier", AUTO, "Bedroom purifier", AUTO));
 }
 
+static void test_hostname(void)
+{
+    const uint8_t mac_3c[6] = { 0x64, 0x90, 0xC1, 0x91, 0x13, 0x2F };
+    const uint8_t mac_3h[6] = { 0x50, 0xEC, 0x50, 0x87, 0x2A, 0x20 };
+    const char *base = "mi-air-purifier";
+    // No name configured: model and MAC ending.
+    TEST_ASSERT_EQUAL_STRING("mi-air-purifier-3c-132f", hostname("", base, purifier::Model::Mb4, mac_3c).c_str());
+    TEST_ASSERT_EQUAL_STRING("mi-air-purifier-3h-2a20", hostname("", base, purifier::Model::Mb3, mac_3h).c_str());
+    TEST_ASSERT_EQUAL_STRING("mi-air-purifier-2a20", hostname("", base, purifier::Model::Unknown, mac_3h).c_str());
+    // From the configured name.
+    TEST_ASSERT_EQUAL_STRING("air-purifier-3c", hostname("Air Purifier 3C", base, purifier::Model::Mb4, mac_3c).c_str());
+    TEST_ASSERT_EQUAL_STRING("luftreiniger-b-ro",
+                             hostname("  Luftreiniger (Büro)!", base, purifier::Model::Mb3, mac_3h).c_str());
+    // Nothing usable left: automatic.
+    TEST_ASSERT_EQUAL_STRING("mi-air-purifier-3h-2a20", hostname("  ", base, purifier::Model::Mb3, mac_3h).c_str());
+    TEST_ASSERT_EQUAL_STRING("mi-air-purifier-3h-2a20", hostname("äöü", base, purifier::Model::Mb3, mac_3h).c_str());
+    // Cut to 32 characters, no trailing dash.
+    std::string longname = hostname("Air purifier in the living room upstairs", base, purifier::Model::Mb3, mac_3h);
+    TEST_ASSERT_EQUAL_STRING("air-purifier-in-the-living-room", longname.c_str());
+}
+
 void run_identity_tests(void)
 {
+    RUN_TEST(test_hostname);
     RUN_TEST(test_should_write_label);
     RUN_TEST(test_passcodes);
     RUN_TEST(test_discriminators);
