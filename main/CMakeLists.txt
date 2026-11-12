@@ -25,7 +25,7 @@ if(DEFINED PURIFIER_MODEL)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE "PURIFIER_MODEL=${PURIFIER_MODEL}")
 endif()
 
-# Log every MCU line on the console (bring-up / protocol captures):
+# Log every MCU line on the console (protocol debugging):
 #   idf.py -DPURIFIER_LINK_DEBUG=1 build
 if(DEFINED PURIFIER_LINK_DEBUG)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE "PURIFIER_LINK_DEBUG=${PURIFIER_LINK_DEBUG}")

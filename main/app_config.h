@@ -26,7 +26,7 @@ inline constexpr uint32_t MODEL_DETECT_TIMEOUT_MS = 15000;
 // ── MCU link ────────────────────────────────────────────────────────────────
 
 // 1 = log every line to and from the MCU on the console ("<- ..." / "-> ...")
-// and each property it reports. For bring-up and protocol captures; noisy, as
+// and each property it reports. For protocol debugging; noisy, as
 // the MCU polls several times a second. Enable without editing the file:
 //   idf.py -DPURIFIER_LINK_DEBUG=1 build
 #ifndef PURIFIER_LINK_DEBUG

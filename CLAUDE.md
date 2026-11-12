@@ -2,7 +2,7 @@
 
 Agent-facing guide for working on this firmware. For what the project *is*, the
 hardware, the serial protocol, backup/restore and the Matter mapping, read
-[README.md](README.md) and [docs/PLAN.md](docs/PLAN.md) — this file does not
+[README.md](README.md) and [docs/MATTER_MAPPING.md](docs/MATTER_MAPPING.md) — this file does not
 repeat them and focuses on the codebase, internal constants and platform
 footguns.
 
@@ -14,8 +14,7 @@ replaces Xiaomi's cloud gateway on the ESP32, talks the **MIoT serial protocol**
 to the STM32 over UART, and exposes the purifier as a Matter **Air Purifier
 over Wi-Fi** (BLE for commissioning only). Mains powered, always on: no ICD, no
 sleep. Language: C++ on **native ESP-IDF v6.1** with `espressif/esp_matter`
-1.6.1 — the same stack as
-[esp32-homecontrol-matter](https://github.com/psytraxx/esp32-homecontrol-matter).
+1.6.1.
 
 ## Required Workflow
 
@@ -48,7 +47,7 @@ and on pushes to `main`:
 
 ### Writing CHANGELOG entries
 
-Same rules as the plant monitor: chronological by date, newest first, no
+Chronological by date, newest first, no
 `[Unreleased]`; `## YYYY-MM-DD` heading with `### Added` / `### Changed` /
 `### Fixed` / `### Removed`; date sections separated by `---`. Plain language
 a non-engineer can follow — what changed and why it matters, not register
@@ -63,7 +62,7 @@ idf.py build
 idf.py -p /dev/ttyUSB0 flash monitor    # module in bootloader mode (GPIO0–GND)
 cmake -S test -B test/build && cmake --build test/build && ./test/build/test_logic
 python3 tools/mcu_sim.py --port /dev/ttyUSB1   # STM32 stand-in on a devkit
-idf.py -B build-debug -DPURIFIER_LINK_DEBUG=1 build   # log every MCU line (bring-up)
+idf.py -B build-debug -DPURIFIER_LINK_DEBUG=1 build   # log every MCU line
 curl --data-binary @build/air_purifier_matter.bin http://<purifier>/ota   # update over Wi-Fi (+ -H "Authorization: Bearer <token>")
 ```
 
@@ -80,7 +79,7 @@ Entry point is `app_main()` in [main/app_main.cpp](main/app_main.cpp).
 | `main/miot_protocol.h/.cpp` | MIoT values (`Value`), tokenizer, ID parsing | yes |
 | `main/miot_queue.h/.cpp` | Commands waiting for the MCU's `get_down`: FIFO, set-merge, get-dedupe, bounded | yes |
 | `main/miot_session.h/.cpp` | One MCU line in → one reply out; hooks for properties, set failures, events, `restore`, `net`, `time`, `mac` | yes |
-| `main/purifier_model.h/.cpp` | Per-model `Profile`s (3H, 3C), model detection/decision rules, tracked `State`, all MIoT ↔ Matter conversions (the tables in docs/PLAN.md) | yes |
+| `main/purifier_model.h/.cpp` | Per-model `Profile`s (3H, 3C), model detection/decision rules, tracked `State`, all MIoT ↔ Matter conversions (the tables in docs/MATTER_MAPPING.md) | yes |
 | `main/wifi_diag.h/.cpp` | Wi-Fi disconnect reason / security-mode names (ESP-IDF v6.1 values), hints, repeat filter | yes |
 | `main/ota_policy.h/.cpp` | Keep/roll-back decision for a new image, update-token check | yes |
 | `main/ota_server.h/.cpp` | HTTP update server (`GET /`, `POST /ota`), image verification after an update | no |
@@ -88,7 +87,7 @@ Entry point is `app_main()` in [main/app_main.cpp](main/app_main.cpp).
 | `main/purifier_link.h/.cpp` | UART2 driver + link task: line framing, session under a recursive mutex, 30 s poll, 60 s heartbeat, MCU-silence detection | no |
 | `main/matter_setup.h/.cpp` | Node + endpoints, Fan Control / HEPA delegates, state → cluster refresh on the CHIP task, commissioning + Wi-Fi events, SNTP | no |
 | `main/app_main.cpp` | Boot order (boot_diag → link → model choice → Matter), remembered model in NVS, restart on a model change, `restore` timer, heap log loop | no |
-| `main/boot_diag.h/.cpp` | Reset reason, boot streak, Matter-start fault counter → wipe Matter NVS (from the plant monitor) | no |
+| `main/boot_diag.h/.cpp` | Reset reason, boot streak, Matter-start fault counter → wipe Matter NVS | no |
 | `main/app_config.h` | Tunable constants | — |
 | `main/board_pins.h` | UART number and pins | — |
 | `main/device_identity.h/.cpp` | Pairing passcode/discriminator rules (constexpr), device name from menuconfig or model | yes |
@@ -202,8 +201,7 @@ one model must not renumber the other model's.
   reports the set speed for named levels and fine speeds, and the motor rpm
   only in Auto and Sleep; `refresh_fan()` prefers the cluster's own
   `PercentSetting` when the purifier runs at the cluster's `SpeedSetting`.
-  Deriving it from the rpm made the slider snap back (fixed after the first
-  3H test).
+  Deriving it from the rpm makes the slider snap back.
 - **3C air quality** is derived from PM2.5 (`air_quality_from_pm25()`), so a
   PM2.5 change on the 3C also raises `CHANGED_AIR_QUALITY`.
 - **Null attributes during commissioning.** `kServerReady` pushes everything
@@ -230,35 +228,32 @@ one model must not renumber the other model's.
 
 - **UART**: UART0 (GPIO1/3) is the flash/console header; the MCU link is
   **UART2 on GPIO17 (TX) / GPIO16 (RX)** — `board_pins.h`.
-- **`CONFIG_FREERTOS_UNICORE=y`**: the module is single-core (confirmed on a
-  3H, see [dump/README.md](dump/README.md)).
+- **`CONFIG_FREERTOS_UNICORE=y`**: the module is single-core (see
+  [dump/README.md](dump/README.md)).
 - **`CONFIG_ESP_MAC_IGNORE_MAC_CRC_ERROR=y`**: the MAC eFuse checksum is
-  invalid (confirmed on a 3H); without this the MAC read fails at boot.
+  invalid; without this the MAC read fails at boot.
 - **WPA3 on, compatibility elements ignored** (`CONFIG_ESP_WIFI_ENABLE_WPA3_SAE=y`
-  plus `wifi_config_t.sta.disable_wpa3_compatible_mode = 1`, as in
-  gravity-cube-espidf). The FRITZ!Box 4040 advertises a WPA3 compatibility
+  plus `wifi_config_t.sta.disable_wpa3_compatible_mode = 1`).
+  The FRITZ!Box 4040 advertises a WPA3 compatibility
   (RSN override) element in its beacon but leaves it out of handshake
-  message 3; with SAE on and that element honoured, a 3H failed every join
+  message 3; with SAE on and that element honoured, every join fails
   with reason 17 `IE_IN_4WAY_DIFFERS`. The CHIP ESP32 driver `memset`s the
   station config when it stores credentials, so `apply_station_options()` in
   `wifi_events.cpp` sets the flag (and `sae_pwe_h2e = WPA3_SAE_PWE_BOTH`) on
   the stored config at start-up, at `STA_START` and after each failed join;
   right after commissioning the first join can therefore still fail once.
   Fallback if a router misbehaves anyway: `CONFIG_ESP_WIFI_ENABLE_WPA3_SAE=n`
-  (WPA2 only, confirmed working on that FRITZ!Box). The compatibility-flag
-  path itself is not yet confirmed on the purifier.
+  (WPA2 only, works on that FRITZ!Box).
 - **`sdkconfig.defaults` changes need a fresh `sdkconfig`**: an existing
   `sdkconfig` wins over the defaults file. Delete it (and `build/`) after
   changing defaults.
 - **No power management / light sleep** — mains powered; don't add PM locks.
 - **Partition table**: [partitions_4mb.csv](partitions_4mb.csv), two app slots
   (`ota_0`, `ota_1`, 0x1F0000 each) for updates over Wi-Fi. `nvs` (Wi-Fi,
-  Matter fabrics, boot_diag, remembered model) keeps the offset and size of
-  the earlier single-app layout (0x9000, 0x15000) so a serial flash to the new
-  table keeps the pairing — never move it. `otadata` took the unused
-  `phy_init` space.
+  Matter fabrics, boot_diag, remembered model) is at 0x9000, size 0x15000 —
+  never move or resize it, or a serial flash loses the pairing.
 - **Updates over Wi-Fi** (`ota_server.cpp`, rules in host-tested
-  `ota_policy.cpp`), modelled on gravity-cube-espidf: `POST /ota` with the app
+  `ota_policy.cpp`), `POST /ota` with the app
   image (optional `Authorization: Bearer` token, `CONFIG_PURIFIER_OTA_TOKEN`
   in `main/Kconfig.projbuild`), `GET /` for version/slot/model. The httpd is
   limited to 2 sockets (`CONFIG_LWIP_MAX_SOCKETS=16` leaves room next to
@@ -291,9 +286,8 @@ one model must not renumber the other model's.
   `esp_matter::start()`); it derives the SPAKE2+ verifier from the passcode
   with the SDK's test salt and 1000 iterations on first use. Invalid values
   fail the build (`static_assert` on the constexpr checks in
-  `device_identity.h`). `chip_project_config.h` no longer holds pairing
-  values. Defaults (2250 / 79983961) equal the old committed code, so
-  existing pairings and the CI image's code are unchanged.
+  `device_identity.h`). Defaults: discriminator 2250, passcode 79983961
+  (the CI image's code).
 - **Never commit stock flash dumps** (`stock_*` is git-ignored): they contain
   device keys and Wi-Fi credentials. `dump/README.md` records what the 3H's
   dump showed (stock partition table, chip facts); only that file is
@@ -304,29 +298,23 @@ one model must not renumber the other model's.
 
 ## Hardware Status
 
-**Confirmed on a 3H** (`dump/README.md` and bring-up logs, board powered
-from the USB adapter): single core, 4 MB flash, invalid MAC eFuse CRC, no
-flash encryption or secure boot. The link on UART2 GPIO17/GPIO16 at 115200
-works; the MCU polls `get_down` every ~180 ms, answers
+**Verified on hardware:** the firmware runs on a 3H and a 3C. On the 3H
+(board powered from the USB adapter): single core, 4 MB
+flash, invalid MAC eFuse CRC, no flash encryption or secure boot
+([dump/README.md](dump/README.md)). The link on UART2 GPIO17/GPIO16 at
+115200 works; the MCU polls `get_down` every ~180 ms, answers
 `MIIO_mcu_version_req` (`0017`), sends `properties_changed` on its own, and
-did **not** announce `model` (detection ran on the probe). Right after boot
-it answers several properties (2.2, 2.5, 3.6, 3.7, 3.8, 2.1, 2.4) with
+does **not** announce `model` (detection runs on the probe). Right after
+boot it answers several properties (2.2, 2.5, 3.6, 3.7, 3.8, 2.1, 2.4) with
 `-4001` until it has settled; the next poll returns them. Joins a FRITZ!Box
-4040 with WPA2, commissions with Home Assistant (Android), and power, presets
+4040 with WPA2 and commissions with Home Assistant (Android); power, presets
 and the speed slider work.
 
-**Still open:** the heartbeat (13.9 on the 3H, 9.4 on the 3C, = 60 every
-60 s); the filter-reset action arguments (`4.1` with `3 0`); what favorite
-level 0 means (3H); the 10 % filter-warning threshold; the polarity of 15.5
-(filter door: logged "open" on a unit under test); the WPA3 compatibility
-flag; an update over Wi-Fi, including a rollback; behaviour on mains with
-the fan running. Soon after a restart a fan command once went to the MCU
-without any controller write (`Fan Control write: mode=2 percent=66
-speed=10`, rejected with codes 1 / -4004), most likely the Fan Control
-cluster restoring its saved FanMode at start-up; the delegate now ignores
-changes until `refresh_fan()` has applied real MCU state (`s_fan_synced`).
-Confirm on the next boot log that the line is gone.
-3C only: that mode 2 is Favorite, its accepted rpm range, comfortable
-Low/Medium/High presets. On the 3C, GPIO0 isn't on the header (short it on
-the module). Update `purifier_model.cpp`, `board_pins.h`,
-`sdkconfig.defaults` and the tests together when a capture says otherwise.
+**Unverified on hardware** (the code follows the MIoT spec and community
+notes): the heartbeat (13.9 / 9.4 = 60 every 60 s), the filter-reset action
+arguments (`4.1` with `3 0`), the meaning of favorite level 0 (3H), the 10 %
+filter-warning threshold, the polarity of 15.5 (filter door), the WPA3
+compatibility flag, and an update over Wi-Fi including rollback. On the 3C, GPIO0
+isn't on the header (short it on the module). When a capture contradicts
+the code, update `purifier_model.cpp`, `board_pins.h`, `sdkconfig.defaults`
+and the tests together.

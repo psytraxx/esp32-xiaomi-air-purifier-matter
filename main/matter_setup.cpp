@@ -83,7 +83,7 @@ static std::atomic<uint32_t> s_pending_changes{ 0 };
 
 // ── Measured-value ranges ─────────────────────────────────────────────────────
 // Measurement clusters reject values outside Min/MaxMeasuredValue, and the
-// config default for both is 0 (see the plant monitor's CLAUDE.md).
+// config default for both is 0.
 
 static constexpr int16_t TEMP_MIN_CENTI_C = -4000;    // -40 °C
 static constexpr int16_t TEMP_MAX_CENTI_C = 8500;     //  85 °C

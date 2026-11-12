@@ -1,7 +1,7 @@
 #pragma once
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Firmware updates over Wi-Fi, as in gravity-cube-espidf:
+// Firmware updates over Wi-Fi:
 //
 //   curl -H "Authorization: Bearer <token>" --data-binary @build/air_purifier_matter.bin http://<purifier>/ota
 //

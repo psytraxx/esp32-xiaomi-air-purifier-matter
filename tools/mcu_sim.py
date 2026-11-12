@@ -29,8 +29,8 @@ Type commands on stdin while it runs to play the user at the device:
   quit
 
 This models the protocol from Xiaomi's MIoT serial spec and the property
-tables in main/purifier_model.cpp. It is not a capture of the real MCU — replace
-the timings and replies with what the Phase 0 capture shows where they differ.
+tables in main/purifier_model.cpp. It is not a capture of the real MCU: timings
+and replies may differ from a real unit.
 
 Requires pyserial (`pip install pyserial`).
 """

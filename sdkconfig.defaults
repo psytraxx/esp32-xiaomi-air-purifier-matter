@@ -1,7 +1,6 @@
 # Mi Air Purifier 3H/3C Matter firmware — classic ESP32 (ESP-WROOM-32D), Matter
 # over Wi-Fi, BLE for commissioning only. Based on esp-matter's light example
-# (examples/light/sdkconfig.defaults, the esp32 Wi-Fi reference) plus the
-# conventions of esp32-homecontrol-matter.
+# (examples/light/sdkconfig.defaults, the esp32 Wi-Fi reference).
 
 CONFIG_IDF_TARGET="esp32"
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
@@ -14,13 +13,13 @@ CONFIG_COMPILER_OPTIMIZATION_SIZE=y
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 
 # DHCP hostname, so routers that register them (e.g. a FRITZ!Box:
-# mi-air-purifier.fritz.box) can resolve the update server.
+# <hostname>.fritz.box) can resolve the update server. The per-unit host name
+# is derived from this prefix (main/device_identity.cpp).
 CONFIG_LWIP_LOCAL_HOSTNAME="mi-air-purifier"
 # Matter takes most of the default 10 sockets; leave room for the update server.
 CONFIG_LWIP_MAX_SOCKETS=16
 
-# The module is a single-core ESP32 (rev 1.0), confirmed on a 3H in Phase 0
-# (dump/README.md).
+# The module is a single-core ESP32 (rev 1.0), see dump/README.md.
 CONFIG_FREERTOS_UNICORE=y
 
 # The MAC eFuse checksum is invalid on Xiaomi's modules (confirmed on a 3H:
@@ -52,7 +51,7 @@ CONFIG_LWIP_HOOK_ND6_GET_GW_DEFAULT=y
 CONFIG_LWIP_IPV6_NUM_ADDRESSES=6
 CONFIG_MBEDTLS_HKDF_C=y
 
-# Matter identity. Test vendor ID; product ID distinct from the plant monitor.
+# Matter identity: test vendor ID.
 CONFIG_CHIP_PROJECT_CONFIG="main/chip_project_config.h"
 # Pairing code from menuconfig (Air purifier menu), see main/commissionable_data.cpp.
 CONFIG_CUSTOM_COMMISSIONABLE_DATA_PROVIDER=y

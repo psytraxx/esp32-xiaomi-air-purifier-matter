@@ -17,6 +17,9 @@ Entries are grouped by date, newest first.
 - Messages from the purifier's controller are no longer lost while the firmware writes to flash, for example during an update or while saving settings.
 - A stray or repeated reply from the purifier's controller can no longer be mistaken for the answer to a request it never got.
 
+### Changed
+- The documentation now only describes what the firmware does today. The implementation plan and roadmap are gone; the table of how each purifier function appears in Matter now has its own page (docs/MATTER_MAPPING.md). The README states that the firmware runs on both the 3H and the 3C.
+
 ### Removed
 - The helper script for working out the pairing verifier: the firmware now works it out itself from the pairing code.
 - An unused Wi-Fi diagnostic helper.
