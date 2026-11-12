@@ -233,7 +233,7 @@ so tooling, conventions and lessons learned carry over:
 | Transport | **Matter over Wi-Fi**, BLE (NimBLE) for commissioning only. The classic ESP32 has no 802.15.4 radio, so Thread isn't possible and no Thread Border Router is needed. |
 | Power model | Mains powered and always on: no ICD, no deep sleep (unlike the plant monitor) |
 | Partitions | Custom 4 MB table with two app slots for [updates over Wi-Fi](#updates-over-wi-fi), plus NVS for Wi-Fi, pairing and settings. |
-| Pairing code | Per-build discriminator, passcode and SPAKE2+ verifier in `main/chip_project_config.h`, generated with `tools/spake2p_verifier.py` |
+| Pairing code and name | Per unit in menuconfig (*Air purifier*: device name, discriminator, passcode); the SPAKE2+ verifier is derived at boot (`main/commissionable_data.cpp`) |
 | Tests | Host-native [Unity](https://github.com/ThrowTheSwitch/Unity) tests in `test/` for the hardware-free logic: MIoT protocol and session, command queue, both purifiers' MIoT ↔ Matter conversions, Wi-Fi failure reasons, update rules |
 | CI | GitHub Actions: `espressif/esp-idf-ci-action` build (`-Werror`) for `esp32` plus the native test job |
 | Housekeeping | `CHANGELOG.md` (dated, plain language), `CLAUDE.md` agent guide, Renovate |
@@ -272,12 +272,13 @@ main/
   wifi_events.h/.cpp      Wi-Fi connect/disconnect log, WPA3 station options
   ota_server.h/.cpp       HTTP update server, keep/roll back a new image
   Kconfig.projbuild       menuconfig: update token
-  chip_project_config.h   pairing identity, Basic Information strings
+  chip_project_config.h   Basic Information strings
+  device_identity.h/.cpp  pairing-code checks, device name                 (host-tested)
+  commissionable_data.*   serves the menuconfig pairing code to Matter
   boot_diag.h/.cpp        reset reason, boot-loop guard (from the plant monitor)
 test/                     host-native Unity tests
 dump/README.md            what the 3H's stock backup showed (no dump files)
 tools/mcu_sim.py          3H/3C STM32 simulator for testing on any ESP32 board
-tools/spake2p_verifier.py pairing-code verifier generator
 partitions_4mb.csv
 sdkconfig.defaults
 ```
@@ -428,10 +429,10 @@ offset 0:
 esptool --port /dev/ttyUSB0 --after no-reset --baud 460800 write-flash 0 air_purifier_matter_merged.bin
 ```
 
-The pairing code is set per build in `main/chip_project_config.h`. The CI
-image uses the code committed there, so anyone with that image shares the
-same code; build your own to change it. With the committed values the
-firmware prints:
+The pairing code and the device name are set per unit in menuconfig (see
+[Several purifiers](#several-purifiers-own-pairing-code-and-name)). The CI
+image uses the defaults, so anyone with that image shares the same code;
+build your own to change it. With the defaults the firmware prints:
 
 | | |
 |---|---|
@@ -442,6 +443,38 @@ Then remove the `GPIO0`–`GND` short and power-cycle the board by unplugging
 and replugging the adapter. The serial log prints the Matter QR code and
 manual pairing code. Close the purifier, plug it into mains and commission
 it from your Matter controller.
+
+### Several purifiers: own pairing code and name
+
+Every unit should get its own pairing code, and units that may be paired at
+the same time **must** use different discriminators. Each unit can also get
+its own name. All three are in menuconfig under **Air purifier**:
+
+| Setting | Default | Note |
+|---|---|---|
+| Device name | empty → "Air Purifier 3H" / "Air Purifier 3C" from the detected model | at most 32 bytes |
+| Pairing discriminator | 2250 | 0–4095, different per unit |
+| Pairing passcode | 79983961 | 1–99999998; trivial values like 12345678 stop the build |
+
+The firmware derives the matching SPAKE2+ verifier itself, so there's
+nothing else to generate. Keep one build directory and sdkconfig per unit,
+for example for a 3C next to a 3H that uses the defaults:
+
+```bash
+idf.py -B build-3c -D SDKCONFIG=build-3c/sdkconfig menuconfig
+```
+
+```bash
+idf.py -B build-3c -D SDKCONFIG=build-3c/sdkconfig -p /dev/ttyUSB0 flash monitor
+```
+
+The console prints the unit's manual pairing code and QR payload when the
+pairing window opens. The serial number shown in controllers is a separate
+setting under *Component config → CHIP Device Layer → Device Identification
+Options*.
+
+Changing the pairing code of a unit that's already paired doesn't affect
+its existing pairing; the new code is used the next time it's paired.
 
 ### Restore the stock firmware
 
@@ -563,15 +596,21 @@ idf.py build
 ```
 
 ```bash
-curl -H "Authorization: Bearer $TOKEN" --data-binary @build/air_purifier_matter.bin http://mi-air-purifier.fritz.box/ota
+curl -H "Authorization: Bearer $TOKEN" --data-binary @build/air_purifier_matter.bin http://mi-air-purifier-3h-2a20.fritz.box/ota
 ```
 
-- The purifier registers as `mi-air-purifier` with DHCP. A FRITZ!Box serves
-  that as `mi-air-purifier.fritz.box`, but only to computers that use it as
-  their DNS server; otherwise use the purifier's IP address from the
-  router's device list.
-- `curl http://mi-air-purifier.fritz.box/` shows the running version, app
-  slot and purifier model.
+- Each purifier registers its own name with DHCP. With a device name set
+  in menuconfig (*Air purifier* → *Device name*) it is that name in
+  host-name form: "Air Purifier Bedroom" becomes `air-purifier-bedroom`.
+  Without one it is `mi-air-purifier`, the model and the last four digits
+  of the MAC address, for example `mi-air-purifier-3h-2a20`. Give each
+  purifier a different name, or none, so an update can't land on the
+  wrong one.
+  A FRITZ!Box serves it as `<name>.fritz.box`, but only to computers that
+  use it as their DNS server; otherwise use the purifier's IP address from
+  the router's device list. The serial log prints the name ("Host name: …").
+- `curl http://mi-air-purifier-3h-2a20.fritz.box/` shows the running
+  version, app slot and purifier model: check it before updating.
 - CI's `firmware-esp32` artifact contains `air_purifier_matter.bin` too.
 - Set an update token with `idf.py menuconfig` → *Air purifier* → *Update
   token* and pass it as `$TOKEN`. Without a token, anyone on your network can

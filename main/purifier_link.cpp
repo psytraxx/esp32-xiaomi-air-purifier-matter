@@ -262,7 +262,7 @@ void purifier_link_start(const PurifierLinkCallbacks &callbacks)
     cfg.stop_bits = UART_STOP_BITS_1;
     cfg.flow_ctrl = UART_HW_FLOWCTRL_DISABLE;
     cfg.source_clk = UART_SCLK_DEFAULT;
-    ESP_ERROR_CHECK(uart_driver_install(PURIFIER_UART_NUM, LINK_UART_RX_BUF, LINK_UART_TX_BUF, 0, nullptr, 0));
+    ESP_ERROR_CHECK(uart_driver_install(PURIFIER_UART_NUM, LINK_UART_RX_BUF, LINK_UART_TX_BUF, 0, nullptr, ESP_INTR_FLAG_IRAM));
     ESP_ERROR_CHECK(uart_param_config(PURIFIER_UART_NUM, &cfg));
     ESP_ERROR_CHECK(uart_set_pin(PURIFIER_UART_NUM, PIN_MCU_TX, PIN_MCU_RX, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
 

@@ -1,9 +1,11 @@
 #include "wifi_events.h"
 
 #include <cinttypes>
+#include <cstring>
 
 #include "esp_event.h"
 #include "esp_log.h"
+#include "esp_netif.h"
 #include "esp_wifi.h"
 
 #include "wifi_diag.h"
@@ -27,8 +29,52 @@ static wifi_diag::DisconnectFilter s_filter;
 //     offers it, and on WPA3-only networks.
 //   - sae_pwe_h2e: both SAE methods, ESP-IDF's normal default (zeroing leaves
 //     it "unspecified").
+// Host name sent with DHCP. CONFIG_LWIP_LOCAL_HOSTNAME is the same on every
+// unit, so two purifiers would share one name on the router.
+static char s_hostname[33] = {};
+
+static void apply_hostname()
+{
+    if (!s_hostname[0])
+        return;
+    esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    const char *current = nullptr;
+    if (!netif || (esp_netif_get_hostname(netif, &current) == ESP_OK && current && strcmp(current, s_hostname) == 0))
+        return;
+    esp_err_t err = esp_netif_set_hostname(netif, s_hostname);
+    if (err == ESP_OK)
+        ESP_LOGI(TAG, "Host name: %s", s_hostname);
+    else
+        ESP_LOGW(TAG, "Couldn't set host name: %s", esp_err_to_name(err));
+}
+
+void wifi_netif_prepare(const char *hostname)
+{
+    if (hostname)
+        strlcpy(s_hostname, hostname, sizeof(s_hostname));
+    // Both tolerate esp_matter::start() doing the same again.
+    esp_err_t err = esp_event_loop_create_default();
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE)
+    {
+        ESP_LOGW(TAG, "Event loop: %s", esp_err_to_name(err));
+        return;
+    }
+    if ((err = esp_netif_init()) != ESP_OK)
+    {
+        ESP_LOGW(TAG, "Network interface init: %s", esp_err_to_name(err));
+        return;
+    }
+    if (!esp_netif_get_handle_from_ifkey("WIFI_STA_DEF") && !esp_netif_create_default_wifi_sta())
+    {
+        ESP_LOGW(TAG, "Couldn't create the Wi-Fi station interface");
+        return;
+    }
+    apply_hostname();
+}
+
 static void apply_station_options(const char *when)
 {
+    apply_hostname();
     wifi_config_t cfg = {};
     if (esp_wifi_get_config(WIFI_IF_STA, &cfg) != ESP_OK || cfg.sta.ssid[0] == 0)
         return; // not provisioned yet
@@ -81,8 +127,10 @@ static void on_wifi_event(void *, esp_event_base_t, int32_t id, void *data)
     }
 }
 
-void wifi_events_start()
+void wifi_events_start(const char *hostname)
 {
+    if (hostname)
+        strlcpy(s_hostname, hostname, sizeof(s_hostname));
     esp_err_t err = esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, on_wifi_event, nullptr, nullptr);
     if (err != ESP_OK)
         ESP_LOGW(TAG, "Wi-Fi event logging not available: %s", esp_err_to_name(err));

@@ -185,7 +185,14 @@ void Session::handle_properties_changed(const std::vector<Token> &t)
 //   action: result <siid> <aiid> <code> [<piid> <value>]...
 void Session::handle_result(const std::vector<Token> &t)
 {
-    Command::Kind kind = m_has_pending ? m_pending : Command::Kind::Set;
+    // A result only means something as the answer to the command handed over
+    // last; without one (a repeated or garbled line) it can't be parsed safely.
+    if (!m_has_pending)
+    {
+        log("Ignoring a result with no command pending");
+        return;
+    }
+    const Command::Kind kind = m_pending;
     m_has_pending = false;
 
     if (kind == Command::Kind::Action)

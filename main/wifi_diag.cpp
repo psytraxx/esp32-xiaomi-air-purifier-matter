@@ -114,30 +114,6 @@ const char *reason_hint(uint8_t reason)
     }
 }
 
-bool is_security_mismatch(uint8_t reason)
-{
-    switch (reason)
-    {
-    case 13: // IE_INVALID
-    case 17: // IE_IN_4WAY_DIFFERS
-    case 18: // GROUP_CIPHER_INVALID
-    case 19: // PAIRWISE_CIPHER_INVALID
-    case 20: // AKMP_INVALID
-    case 21: // UNSUPP_RSN_IE_VERSION
-    case 22: // INVALID_RSN_IE_CAP
-    case 24: // CIPHER_SUITE_REJECTED
-    case 29: // BAD_CIPHER_OR_AKM
-    case 48: // INVALID_FT_ACTION_FRAME_COUNT
-    case 49: // INVALID_PMKID
-    case 50: // INVALID_MDE
-    case 51: // INVALID_FTE
-    case 209: // SA_QUERY_TIMEOUT (PMF)
-        return true;
-    default:
-        return false;
-    }
-}
-
 const char *authmode_name(int authmode)
 {
     switch (authmode)

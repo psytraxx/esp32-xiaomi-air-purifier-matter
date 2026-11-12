@@ -1,5 +1,35 @@
 menu "Air purifier"
 
+config PURIFIER_DEVICE_NAME
+    string "Device name"
+    default ""
+    help
+        Name this purifier shows in Matter controllers (Basic Information
+        NodeLabel), at most 32 bytes. Empty: "Air Purifier 3H" or
+        "Air Purifier 3C", from the detected model. Give each unit its own
+        name, e.g. "Bedroom purifier".
+
+config PURIFIER_SETUP_DISCRIMINATOR
+    int "Pairing discriminator (0-4095)"
+    range 0 4095
+    default 2250
+    help
+        12-bit number in the pairing code that lets a controller find this
+        unit. Units that may be paired at the same time need different
+        values.
+
+config PURIFIER_SETUP_PASSCODE
+    int "Pairing passcode (1-99999998)"
+    range 1 99999998
+    default 79983961
+    help
+        The secret part of the pairing code. Give each unit its own. Trivial
+        values (12345678, 11111111, ...) are rejected at build time. The
+        firmware derives the matching SPAKE2+ verifier at boot, and prints
+        the resulting QR payload and manual code on the console.
+        The serial number shown in controllers is a separate setting:
+        Component config > CHIP Device Layer > Device Identification Options.
+
 config PURIFIER_OTA_TOKEN
     string "Update token"
     default ""

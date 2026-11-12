@@ -8,8 +8,10 @@
 #include <vector>
 
 #include "esp_log.h"
+#include "esp_mac.h"
 #include "esp_netif_sntp.h"
 #include "esp_system.h"
+#include "nvs.h"
 #include "nvs_flash.h"
 
 #include "esp_matter.h"
@@ -40,6 +42,8 @@
 #include "purifier_link.h"
 #include "purifier_model.h"
 #include "wifi_events.h"
+#include "commissionable_data.h"
+#include "device_identity.h"
 
 static const char *TAG = "matter_setup";
 
@@ -66,6 +70,13 @@ static bool s_wifi_connected = false;
 // controller or from us; this flag tells the delegate to ignore our own
 // changes so they are not sent straight back to the MCU.
 static bool s_applying_purifier_state = false;
+
+// False until refresh_fan() has pushed real purifier state into Fan Control.
+// At start-up the cluster restores its saved FanMode and tells the delegate,
+// which would send that stale setting to the MCU as if a controller had
+// written it. Controller writes before then are dropped (logged): the
+// cluster is re-synced from the purifier moments later anyway.
+static bool s_fan_synced = false;
 
 // Changed-groups accumulated since the last refresh ran on the CHIP task.
 static std::atomic<uint32_t> s_pending_changes{ 0 };
@@ -102,6 +113,11 @@ public:
     {
         if (s_applying_purifier_state)
             return;
+        if (!s_fan_synced)
+        {
+            ESP_LOGI(TAG, "Fan Control change before the purifier reported its state: ignored");
+            return;
+        }
         purifier::FanDrive drive;
         drive.mode = static_cast<purifier::FanMode>(chip::to_underlying(state.mode));
         if (!state.percentSetting.IsNull())
@@ -115,7 +131,7 @@ public:
 
     void OnWindSettingChanged(chip::BitMask<FanControl::WindBitmap> value) override
     {
-        if (s_applying_purifier_state)
+        if (s_applying_purifier_state || !s_fan_synced)
             return;
         bool sleep = value.Has(FanControl::WindBitmap::kSleepWind);
         ESP_LOGI(TAG, "Fan Control write: sleep wind %s", sleep ? "on" : "off");
@@ -251,6 +267,7 @@ static void refresh_fan(const purifier::Profile &profile, const purifier::State 
         if (view->sleep_wind)
             wind.Set(FanControl::WindBitmap::kSleepWind);
         warn_status("WindSetting", fan->SetWindSetting(wind));
+        s_fan_synced = true;
     }
     // Home Assistant shows PercentCurrent on its slider. When the purifier
     // runs at the speed the cluster is set to, report the cluster's own
@@ -465,17 +482,64 @@ static void attach_delegates()
         ESP_LOGE(TAG, "HEPA delegate: %" CHIP_ERROR_FORMAT, err.Format());
 }
 
+// The label this firmware wrote last, so a later boot can tell its own label
+// from a name given in a controller.
+static constexpr const char *LABEL_NVS_NS = "purifier";
+static constexpr const char *LABEL_NVS_KEY = "node_label";
+
+static std::string load_written_label()
+{
+    nvs_handle_t h;
+    if (nvs_open(LABEL_NVS_NS, NVS_READONLY, &h) != ESP_OK)
+        return {};
+    char buf[identity::NODE_LABEL_MAX + 1] = {};
+    size_t len = sizeof(buf);
+    std::string out;
+    if (nvs_get_str(h, LABEL_NVS_KEY, buf, &len) == ESP_OK)
+        out = buf;
+    nvs_close(h);
+    return out;
+}
+
+static void save_written_label(const std::string &label)
+{
+    nvs_handle_t h;
+    if (nvs_open(LABEL_NVS_NS, NVS_READWRITE, &h) != ESP_OK)
+        return;
+    nvs_set_str(h, LABEL_NVS_KEY, label.c_str());
+    nvs_commit(h);
+    nvs_close(h);
+}
+
 static void set_node_label()
 {
     esp_matter::attribute_t *attr = esp_matter::attribute::get(0, BasicInformation::Id, BasicInformation::Attributes::NodeLabel::Id);
     if (!attr)
         return;
-    // Same approach as the plant monitor: sets the initial value only, a name
-    // given in the controller is kept.
-    char label[33] = {};
-    snprintf(label, sizeof(label), "%s %s", NODE_LABEL, purifier::model_name(s_model));
+    // The name comes from menuconfig ("Air purifier > Device name"), or
+    // "Air Purifier 3H"/"3C" from the model. It replaces the current label
+    // only when that is empty or one this firmware set itself; a name given
+    // in a controller is kept.
+    std::string desired = identity::node_label(CONFIG_PURIFIER_DEVICE_NAME, NODE_LABEL, s_model);
+    std::string automatic = identity::node_label("", NODE_LABEL, s_model);
+
+    std::string current;
+    esp_matter_attr_val_t cur = {};
+    if (esp_matter::attribute::get_val(attr, &cur) == ESP_OK && cur.val.a.b && cur.val.a.s > 0 &&
+        cur.val.a.s <= identity::NODE_LABEL_MAX)
+        current.assign(reinterpret_cast<const char *>(cur.val.a.b), cur.val.a.s);
+
+    if (!identity::should_write_label(current, desired, load_written_label(), automatic))
+    {
+        ESP_LOGI(TAG, "Device name: %s", current.c_str());
+        return;
+    }
+    static char label[identity::NODE_LABEL_MAX + 1] = {};
+    strlcpy(label, desired.c_str(), sizeof(label));
+    ESP_LOGI(TAG, "Device name: %s (set by the firmware)", label);
     esp_matter_attr_val_t val = esp_matter_char_str(label, static_cast<uint16_t>(strlen(label)));
-    esp_matter::attribute::set_val(attr, &val);
+    if (esp_matter::attribute::set_val(attr, &val) == ESP_OK)
+        save_written_label(desired);
 }
 
 // ── Matter events (CHIP task) ─────────────────────────────────────────────────
@@ -726,6 +790,12 @@ void matter_setup(EventGroupHandle_t events, purifier::Model model)
         esp_restart();
     }
 
+    commissionable_data_install(); // pairing code from menuconfig
+
+    uint8_t mac[6] = {};
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    wifi_netif_prepare(identity::hostname(CONFIG_PURIFIER_DEVICE_NAME, CONFIG_LWIP_LOCAL_HOSTNAME, s_model, mac).c_str());
+
     esp_err_t err = esp_matter::start(matter_event_cb);
     if (err != ESP_OK)
     {
@@ -740,7 +810,7 @@ void matter_setup(EventGroupHandle_t events, purifier::Model model)
         esp_restart();
     }
     ESP_LOGI(TAG, "Matter stack started");
-    wifi_events_start();
+    wifi_events_start(nullptr);
 }
 
 void matter_factory_reset()

@@ -91,7 +91,9 @@ Entry point is `app_main()` in [main/app_main.cpp](main/app_main.cpp).
 | `main/boot_diag.h/.cpp` | Reset reason, boot streak, Matter-start fault counter → wipe Matter NVS (from the plant monitor) | no |
 | `main/app_config.h` | Tunable constants | — |
 | `main/board_pins.h` | UART number and pins | — |
-| `main/chip_project_config.h` | Pairing identity, Basic Information strings | — |
+| `main/device_identity.h/.cpp` | Pairing passcode/discriminator rules (constexpr), device name from menuconfig or model | yes |
+| `main/commissionable_data.h/.cpp` | Matter `CommissionableDataProvider` serving the menuconfig pairing code; derives the SPAKE2+ verifier | no |
+| `main/chip_project_config.h` | Basic Information strings | — |
 | `tools/mcu_sim.py` | STM32 simulator for a devkit (`--model mb3`/`mb4`, `--silent-model`) | — |
 
 Keep protocol and mapping logic in the host-tested files; the ESP-only files
@@ -172,7 +174,15 @@ one model must not renumber the other model's.
 - **Fan Control echo suppression.** The cluster calls `OnFanDriveStateChanged`
   for every change, including the ones `refresh_fan()` makes from MCU reports.
   `s_applying_purifier_state` makes the delegate ignore those — keep every
-  Fan Control setter call inside that flag.
+  Fan Control setter call inside that flag. Until the first `refresh_fan()`
+  with MCU state, `s_fan_synced` is false and the delegate ignores
+  everything, so the cluster's restored FanMode isn't sent to the MCU.
+- **NodeLabel** is written at `kServerReady` only when
+  `identity::should_write_label()` says so (empty, the automatic
+  "Air Purifier 3H/3C", or the label we wrote last — kept in NVS
+  `purifier`/`node_label`); a name set in a controller survives.
+- **UART ISR in IRAM** (`CONFIG_UART_ISR_IN_IRAM=y`): MCU bytes arriving
+  during flash writes (NVS, OTA) would otherwise be dropped.
 - **FanMode vs speed writes.** The cluster itself maps FanMode → Percent/Speed
   (Low 33 %/1, Medium 66 %/8, High 100 %/15 with SpeedMax 15). `fan_target()`
   uses exactly those pairs to recognise a FanMode write (→ a named level
@@ -255,14 +265,35 @@ one model must not renumber the other model's.
   Matter). `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y`: a new image is kept
   once Matter is ready, Wi-Fi is up and the MCU talks
   (`ota_policy::verdict`), checked from the `app_main` loop; otherwise it
-  rolls back after 2 minutes. Not Matter OTA: Home Assistant only serves
+  rolls back after 2 minutes. Restarts the firmware makes on purpose (model
+  change, `restore` factory reset) call `ota_keep_before_restart()` first,
+  or the bootloader would count them as a failed first boot; restarts after
+  a Matter-start failure deliberately don't. A stalled upload is aborted
+  after `MAX_RECV_TIMEOUTS` receive timeouts. Not Matter OTA: Home Assistant only serves
   OTA for devices in the production DCL, not our test vendor ID.
-- **Hostname** `mi-air-purifier` (`CONFIG_LWIP_LOCAL_HOSTNAME`) via DHCP.
+- **Hostname** per unit via DHCP: `identity::hostname()` → the menuconfig
+  device name in host-name form (`CONFIG_PURIFIER_DEVICE_NAME`
+  "Air Purifier 3C" → `air-purifier-3c`), else
+  `<CONFIG_LWIP_LOCAL_HOSTNAME>-<model>-<last 2 MAC bytes>`
+  (`mi-air-purifier-3h-2a20`); max 32 characters. `wifi_netif_prepare()`
+  creates the `WIFI_STA_DEF` netif with that name **before**
+  `esp_matter::start()` (CHIP reuses an existing one): CHIP joins Wi-Fi
+  during start, so a name set afterwards only reached the router at the
+  next DHCP renewal (days). Re-applied at `STA_START` and after failed
+  joins.
   No mDNS name: Matter uses CHIP's minimal mDNS (`CONFIG_USE_MINIMAL_MDNS=y`),
   and Espressif's mDNS component would compete for port 5353.
-- **Pairing code is per-build**: discriminator, passcode and verifier in
-  `chip_project_config.h`. Change passcode and verifier together
-  (`python3 tools/spake2p_verifier.py <passcode>`).
+- **Pairing code and name are per unit, in menuconfig** (*Air purifier*:
+  `CONFIG_PURIFIER_DEVICE_NAME`, `CONFIG_PURIFIER_SETUP_DISCRIMINATOR`,
+  `CONFIG_PURIFIER_SETUP_PASSCODE`). `commissionable_data.cpp` is the
+  Matter `CommissionableDataProvider` (selected by
+  `CONFIG_CUSTOM_COMMISSIONABLE_DATA_PROVIDER=y`, installed before
+  `esp_matter::start()`); it derives the SPAKE2+ verifier from the passcode
+  with the SDK's test salt and 1000 iterations on first use. Invalid values
+  fail the build (`static_assert` on the constexpr checks in
+  `device_identity.h`). `chip_project_config.h` no longer holds pairing
+  values. Defaults (2250 / 79983961) equal the old committed code, so
+  existing pairings and the CI image's code are unchanged.
 - **Never commit stock flash dumps** (`stock_*` is git-ignored): they contain
   device keys and Wi-Fi credentials. `dump/README.md` records what the 3H's
   dump showed (stock partition table, chip facts); only that file is
@@ -289,11 +320,12 @@ and the speed slider work.
 level 0 means (3H); the 10 % filter-warning threshold; the polarity of 15.5
 (filter door: logged "open" on a unit under test); the WPA3 compatibility
 flag; an update over Wi-Fi, including a rollback; behaviour on mains with
-the fan running. **Suspected:** soon after a restart a fan command went to
-the MCU without any controller write (`Fan Control write: mode=2 percent=66
-speed=10`, rejected with codes 1 / -4004), probably the Fan Control
-cluster restoring its saved FanMode at start-up and notifying the delegate;
-confirm with a full boot log before fixing.
+the fan running. Soon after a restart a fan command once went to the MCU
+without any controller write (`Fan Control write: mode=2 percent=66
+speed=10`, rejected with codes 1 / -4004), most likely the Fan Control
+cluster restoring its saved FanMode at start-up; the delegate now ignores
+changes until `refresh_fan()` has applied real MCU state (`s_fan_synced`).
+Confirm on the next boot log that the line is gone.
 3C only: that mode 2 is Favorite, its accepted rpm range, comfortable
 Low/Medium/High presets. On the 3C, GPIO0 isn't on the header (short it on
 the module). Update `purifier_model.cpp`, `board_pins.h`,
