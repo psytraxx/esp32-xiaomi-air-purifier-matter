@@ -235,8 +235,25 @@ static void test_model_probe_through_session(void)
     }
 }
 
+static void test_result_without_pending_command_is_ignored(void)
+{
+    Recorder r;
+    Session s = started_session(r);
+    // A set is handed over and confirmed...
+    s.queue_set({ 2, 2 }, Value::of_bool(true));
+    s.handle_line("get_down", 1);
+    s.handle_line("result 2 2 0", 2);
+    TEST_ASSERT_EQUAL(1, r.props.size());
+    // ...then the same result line arrives again (repeated or garbled): it
+    // must not report power on a second time.
+    TEST_ASSERT_EQUAL_STRING("ok", s.handle_line("result 2 2 0", 3).c_str());
+    TEST_ASSERT_EQUAL(1, r.props.size());
+    TEST_ASSERT_EQUAL(0, r.set_failures.size());
+}
+
 void run_session_tests(void)
 {
+    RUN_TEST(test_result_without_pending_command_is_ignored);
     RUN_TEST(test_model_probe_through_session);
     RUN_TEST(test_start_announces_net_then_version_request);
     RUN_TEST(test_net_change_jumps_queue_once);

@@ -30,4 +30,12 @@ std::string node_label(std::string_view configured, std::string_view base, purif
     return truncate_utf8(label, NODE_LABEL_MAX);
 }
 
+bool should_write_label(std::string_view current, std::string_view desired, std::string_view last_written,
+                        std::string_view automatic)
+{
+    if (current == desired)
+        return false;
+    return current.empty() || (!last_written.empty() && current == last_written) || current == automatic;
+}
+
 } // namespace identity

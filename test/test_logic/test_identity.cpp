@@ -44,8 +44,27 @@ static void test_node_label_configured(void)
     TEST_ASSERT_EQUAL(31, node_label(umlaut, "Air Purifier", purifier::Model::Mb3).size());
 }
 
+static void test_should_write_label(void)
+{
+    const char *AUTO = "Air Purifier 3H";
+    // First boot: nothing set yet.
+    TEST_ASSERT_TRUE(should_write_label("", AUTO, "", AUTO));
+    // Unchanged.
+    TEST_ASSERT_FALSE(should_write_label(AUTO, AUTO, AUTO, AUTO));
+    // Renamed in a controller: kept, also when the menuconfig name changes.
+    TEST_ASSERT_FALSE(should_write_label("Kitchen", AUTO, AUTO, AUTO));
+    TEST_ASSERT_FALSE(should_write_label("Kitchen", "Bedroom purifier", AUTO, AUTO));
+    // Our own label, new menuconfig name: updated.
+    TEST_ASSERT_TRUE(should_write_label("Bedroom purifier", "Living room", "Bedroom purifier", AUTO));
+    // Upgrade from firmware that wrote the automatic label but didn't record it.
+    TEST_ASSERT_TRUE(should_write_label(AUTO, "Bedroom purifier", "", AUTO));
+    // Back to the automatic label when the menuconfig name is cleared.
+    TEST_ASSERT_TRUE(should_write_label("Bedroom purifier", AUTO, "Bedroom purifier", AUTO));
+}
+
 void run_identity_tests(void)
 {
+    RUN_TEST(test_should_write_label);
     RUN_TEST(test_passcodes);
     RUN_TEST(test_discriminators);
     RUN_TEST(test_node_label_default_per_model);

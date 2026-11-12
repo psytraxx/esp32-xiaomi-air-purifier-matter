@@ -24,3 +24,9 @@ bool ota_pending_verify();
 // Decide on a pending image: keep it, roll back (restarts) or wait. Call
 // regularly from the main loop; does nothing once the image is kept.
 void ota_check_image(uint32_t elapsed_ms, bool matter_ready, bool wifi_up, bool mcu_alive);
+
+// Keep a fresh update before a restart the firmware makes on purpose (a model
+// change, a factory reset). Without this the bootloader would treat the
+// restart as a failed first boot and go back to the previous image. Safe to
+// call at any time, also before ota_server_start(); `why` is logged.
+void ota_keep_before_restart(const char *why);

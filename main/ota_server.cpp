@@ -20,6 +20,10 @@ static const char *TAG = "ota";
 // Time for the reply to leave before the restart.
 static constexpr uint32_t RESTART_DELAY_MS = 500;
 
+// Receive timeouts in a row (recv_wait_timeout = 10 s each) before an upload
+// counts as stalled.
+static constexpr uint32_t MAX_RECV_TIMEOUTS = 3;
+
 static bool s_pending = false;
 static bool s_decided = false;
 
@@ -68,11 +72,21 @@ static esp_err_t post_ota(httpd_req_t *req)
     // The server handles one request at a time.
     static char buf[2048];
     size_t left = req->content_len;
+    uint32_t timeouts = 0;
     while (left > 0)
     {
         const int n = httpd_req_recv(req, buf, left < sizeof(buf) ? left : sizeof(buf));
         if (n == HTTPD_SOCK_ERR_TIMEOUT)
-            continue;
+        {
+            // A sender that stalls would otherwise hold the slot (and one of
+            // the server's two sockets) for good.
+            if (++timeouts < MAX_RECV_TIMEOUTS)
+                continue;
+            ESP_LOGW(TAG, "Upload stalled with %u bytes to go", static_cast<unsigned>(left));
+            esp_ota_abort(ota);
+            return httpd_resp_send_err(req, HTTPD_408_REQ_TIMEOUT, "Upload stalled");
+        }
+        timeouts = 0;
         if (n <= 0)
         {
             ESP_LOGW(TAG, "Upload broke off with %u bytes to go", static_cast<unsigned>(left));
@@ -141,6 +155,21 @@ void ota_server_start()
 bool ota_pending_verify()
 {
     return s_pending && !s_decided;
+}
+
+void ota_keep_before_restart(const char *why)
+{
+    // Asks the partition, not s_pending: a model change restarts before the
+    // update server has started.
+    esp_ota_img_states_t state;
+    if (s_decided || esp_ota_get_state_partition(esp_ota_get_running_partition(), &state) != ESP_OK ||
+        state != ESP_OTA_IMG_PENDING_VERIFY)
+        return;
+    s_decided = true;
+    if (esp_ota_mark_app_valid_cancel_rollback() == ESP_OK)
+        ESP_LOGI(TAG, "New firmware kept before restarting (%s)", why);
+    else
+        ESP_LOGE(TAG, "Couldn't mark the new firmware as kept");
 }
 
 void ota_check_image(uint32_t elapsed_ms, bool matter_ready, bool wifi_up, bool mcu_alive)

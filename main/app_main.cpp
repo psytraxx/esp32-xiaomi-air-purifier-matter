@@ -88,6 +88,7 @@ static void on_restore()
 
 static void restore_timer_cb(void *)
 {
+    ota_keep_before_restart("network reset");
     matter_factory_reset();
 }
 
@@ -128,6 +129,7 @@ static void handle_detection(purifier::Model forced, purifier::Model &remembered
         ESP_LOGW(TAG, "This is a Mi Air Purifier %s, not a %s — restarting with its endpoints",
                  purifier::model_name(found), purifier::model_name(active));
         save_model(found);
+        ota_keep_before_restart("model change");
         vTaskDelay(pdMS_TO_TICKS(200));
         esp_restart();
         break;

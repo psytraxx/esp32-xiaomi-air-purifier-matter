@@ -23,11 +23,6 @@ const char *reason_name(uint8_t reason);
 // no useful advice.
 const char *reason_hint(uint8_t reason);
 
-// True for reasons that mean the station and the AP disagree on security
-// settings (RSN/RSNX IEs, AKM, ciphers, PMF/FT) rather than a wrong password,
-// a missing network or a weak signal.
-bool is_security_mismatch(uint8_t reason);
-
 // "WPA2_PSK" for 3, "UNKNOWN" outside the table.
 const char *authmode_name(int authmode);
 

@@ -76,3 +76,8 @@ CONFIG_SUPPORT_GROUPCAST_CLUSTER=n
 CONFIG_LOG_COLORS=n
 CONFIG_CHIP_LOG_DEFAULT_LEVEL_EQUALS_LOG_DEFAULT_LEVEL=n
 CONFIG_CHIP_LOG_DEFAULT_LEVEL_ERROR=y
+
+# MCU link: keep the UART interrupt handler in IRAM so it still runs while
+# flash is busy (NVS writes, updates over Wi-Fi). Otherwise bytes from the
+# MCU can be dropped and a line lost.
+CONFIG_UART_ISR_IN_IRAM=y

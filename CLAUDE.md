@@ -174,7 +174,15 @@ one model must not renumber the other model's.
 - **Fan Control echo suppression.** The cluster calls `OnFanDriveStateChanged`
   for every change, including the ones `refresh_fan()` makes from MCU reports.
   `s_applying_purifier_state` makes the delegate ignore those — keep every
-  Fan Control setter call inside that flag.
+  Fan Control setter call inside that flag. Until the first `refresh_fan()`
+  with MCU state, `s_fan_synced` is false and the delegate ignores
+  everything, so the cluster's restored FanMode isn't sent to the MCU.
+- **NodeLabel** is written at `kServerReady` only when
+  `identity::should_write_label()` says so (empty, the automatic
+  "Air Purifier 3H/3C", or the label we wrote last — kept in NVS
+  `purifier`/`node_label`); a name set in a controller survives.
+- **UART ISR in IRAM** (`CONFIG_UART_ISR_IN_IRAM=y`): MCU bytes arriving
+  during flash writes (NVS, OTA) would otherwise be dropped.
 - **FanMode vs speed writes.** The cluster itself maps FanMode → Percent/Speed
   (Low 33 %/1, Medium 66 %/8, High 100 %/15 with SpeedMax 15). `fan_target()`
   uses exactly those pairs to recognise a FanMode write (→ a named level
@@ -257,7 +265,11 @@ one model must not renumber the other model's.
   Matter). `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y`: a new image is kept
   once Matter is ready, Wi-Fi is up and the MCU talks
   (`ota_policy::verdict`), checked from the `app_main` loop; otherwise it
-  rolls back after 2 minutes. Not Matter OTA: Home Assistant only serves
+  rolls back after 2 minutes. Restarts the firmware makes on purpose (model
+  change, `restore` factory reset) call `ota_keep_before_restart()` first,
+  or the bootloader would count them as a failed first boot; restarts after
+  a Matter-start failure deliberately don't. A stalled upload is aborted
+  after `MAX_RECV_TIMEOUTS` receive timeouts. Not Matter OTA: Home Assistant only serves
   OTA for devices in the production DCL, not our test vendor ID.
 - **Hostname** `mi-air-purifier` (`CONFIG_LWIP_LOCAL_HOSTNAME`) via DHCP.
   No mDNS name: Matter uses CHIP's minimal mDNS (`CONFIG_USE_MINIMAL_MDNS=y`),
@@ -299,11 +311,12 @@ and the speed slider work.
 level 0 means (3H); the 10 % filter-warning threshold; the polarity of 15.5
 (filter door: logged "open" on a unit under test); the WPA3 compatibility
 flag; an update over Wi-Fi, including a rollback; behaviour on mains with
-the fan running. **Suspected:** soon after a restart a fan command went to
-the MCU without any controller write (`Fan Control write: mode=2 percent=66
-speed=10`, rejected with codes 1 / -4004), probably the Fan Control
-cluster restoring its saved FanMode at start-up and notifying the delegate;
-confirm with a full boot log before fixing.
+the fan running. Soon after a restart a fan command once went to the MCU
+without any controller write (`Fan Control write: mode=2 percent=66
+speed=10`, rejected with codes 1 / -4004), most likely the Fan Control
+cluster restoring its saved FanMode at start-up; the delegate now ignores
+changes until `refresh_fan()` has applied real MCU state (`s_fan_synced`).
+Confirm on the next boot log that the line is gone.
 3C only: that mode 2 is Favorite, its accepted rpm range, comfortable
 Low/Medium/High presets. On the 3C, GPIO0 isn't on the header (short it on
 the module). Update `purifier_model.cpp`, `board_pins.h`,

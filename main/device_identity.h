@@ -49,4 +49,12 @@ inline constexpr size_t NODE_LABEL_MAX = 32;
 // without splitting a UTF-8 character.
 std::string node_label(std::string_view configured, std::string_view base, purifier::Model model);
 
+// Whether to write `desired` into NodeLabel at start-up. The current label is
+// the firmware's own if it is empty, the one it wrote last time, or the
+// automatic "<base> <model>" label (written by firmware that didn't record
+// its label yet); then it follows the menuconfig name. Anything else was set
+// from a controller and is kept.
+bool should_write_label(std::string_view current, std::string_view desired, std::string_view last_written,
+                        std::string_view automatic);
+
 } // namespace identity
