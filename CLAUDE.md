@@ -275,10 +275,12 @@ one model must not renumber the other model's.
   device name in host-name form (`CONFIG_PURIFIER_DEVICE_NAME`
   "Air Purifier 3C" → `air-purifier-3c`), else
   `<CONFIG_LWIP_LOCAL_HOSTNAME>-<model>-<last 2 MAC bytes>`
-  (`mi-air-purifier-3h-2a20`); max 32 characters. Set on the `WIFI_STA_DEF` netif by
-  `wifi_events.cpp` at start-up, `STA_START` and after failed joins. A
-  module already on Wi-Fi when it is set sends the new name with its next
-  DHCP renewal.
+  (`mi-air-purifier-3h-2a20`); max 32 characters. `wifi_netif_prepare()`
+  creates the `WIFI_STA_DEF` netif with that name **before**
+  `esp_matter::start()` (CHIP reuses an existing one): CHIP joins Wi-Fi
+  during start, so a name set afterwards only reached the router at the
+  next DHCP renewal (days). Re-applied at `STA_START` and after failed
+  joins.
   No mDNS name: Matter uses CHIP's minimal mDNS (`CONFIG_USE_MINIMAL_MDNS=y`),
   and Espressif's mDNS component would compete for port 5353.
 - **Pairing code and name are per unit, in menuconfig** (*Air purifier*:

@@ -792,6 +792,10 @@ void matter_setup(EventGroupHandle_t events, purifier::Model model)
 
     commissionable_data_install(); // pairing code from menuconfig
 
+    uint8_t mac[6] = {};
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    wifi_netif_prepare(identity::hostname(CONFIG_PURIFIER_DEVICE_NAME, CONFIG_LWIP_LOCAL_HOSTNAME, s_model, mac).c_str());
+
     esp_err_t err = esp_matter::start(matter_event_cb);
     if (err != ESP_OK)
     {
@@ -806,9 +810,7 @@ void matter_setup(EventGroupHandle_t events, purifier::Model model)
         esp_restart();
     }
     ESP_LOGI(TAG, "Matter stack started");
-    uint8_t mac[6] = {};
-    esp_read_mac(mac, ESP_MAC_WIFI_STA);
-    wifi_events_start(identity::hostname(CONFIG_PURIFIER_DEVICE_NAME, CONFIG_LWIP_LOCAL_HOSTNAME, s_model, mac).c_str());
+    wifi_events_start(nullptr);
 }
 
 void matter_factory_reset()

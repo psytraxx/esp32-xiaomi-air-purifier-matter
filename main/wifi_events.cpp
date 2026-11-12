@@ -48,6 +48,30 @@ static void apply_hostname()
         ESP_LOGW(TAG, "Couldn't set host name: %s", esp_err_to_name(err));
 }
 
+void wifi_netif_prepare(const char *hostname)
+{
+    if (hostname)
+        strlcpy(s_hostname, hostname, sizeof(s_hostname));
+    // Both tolerate esp_matter::start() doing the same again.
+    esp_err_t err = esp_event_loop_create_default();
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE)
+    {
+        ESP_LOGW(TAG, "Event loop: %s", esp_err_to_name(err));
+        return;
+    }
+    if ((err = esp_netif_init()) != ESP_OK)
+    {
+        ESP_LOGW(TAG, "Network interface init: %s", esp_err_to_name(err));
+        return;
+    }
+    if (!esp_netif_get_handle_from_ifkey("WIFI_STA_DEF") && !esp_netif_create_default_wifi_sta())
+    {
+        ESP_LOGW(TAG, "Couldn't create the Wi-Fi station interface");
+        return;
+    }
+    apply_hostname();
+}
+
 static void apply_station_options(const char *when)
 {
     apply_hostname();
