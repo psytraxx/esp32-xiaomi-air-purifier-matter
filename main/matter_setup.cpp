@@ -40,6 +40,8 @@
 #include "purifier_link.h"
 #include "purifier_model.h"
 #include "wifi_events.h"
+#include "commissionable_data.h"
+#include "device_identity.h"
 
 static const char *TAG = "matter_setup";
 
@@ -471,9 +473,12 @@ static void set_node_label()
     if (!attr)
         return;
     // Same approach as the plant monitor: sets the initial value only, a name
-    // given in the controller is kept.
-    char label[33] = {};
-    snprintf(label, sizeof(label), "%s %s", NODE_LABEL, purifier::model_name(s_model));
+    // given in the controller is kept. The name comes from menuconfig ("Air
+    // purifier > Device name"), or "Air Purifier 3H"/"3C" from the model.
+    static char label[identity::NODE_LABEL_MAX + 1] = {};
+    std::string name = identity::node_label(CONFIG_PURIFIER_DEVICE_NAME, NODE_LABEL, s_model);
+    strlcpy(label, name.c_str(), sizeof(label));
+    ESP_LOGI(TAG, "Device name: %s", label);
     esp_matter_attr_val_t val = esp_matter_char_str(label, static_cast<uint16_t>(strlen(label)));
     esp_matter::attribute::set_val(attr, &val);
 }
@@ -725,6 +730,8 @@ void matter_setup(EventGroupHandle_t events, purifier::Model model)
         ESP_LOGE(TAG, "endpoint creation failed — restarting");
         esp_restart();
     }
+
+    commissionable_data_install(); // pairing code from menuconfig
 
     esp_err_t err = esp_matter::start(matter_event_cb);
     if (err != ESP_OK)

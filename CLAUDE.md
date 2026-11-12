@@ -91,7 +91,9 @@ Entry point is `app_main()` in [main/app_main.cpp](main/app_main.cpp).
 | `main/boot_diag.h/.cpp` | Reset reason, boot streak, Matter-start fault counter → wipe Matter NVS (from the plant monitor) | no |
 | `main/app_config.h` | Tunable constants | — |
 | `main/board_pins.h` | UART number and pins | — |
-| `main/chip_project_config.h` | Pairing identity, Basic Information strings | — |
+| `main/device_identity.h/.cpp` | Pairing passcode/discriminator rules (constexpr), device name from menuconfig or model | yes |
+| `main/commissionable_data.h/.cpp` | Matter `CommissionableDataProvider` serving the menuconfig pairing code; derives the SPAKE2+ verifier | no |
+| `main/chip_project_config.h` | Basic Information strings | — |
 | `tools/mcu_sim.py` | STM32 simulator for a devkit (`--model mb3`/`mb4`, `--silent-model`) | — |
 
 Keep protocol and mapping logic in the host-tested files; the ESP-only files
@@ -260,9 +262,17 @@ one model must not renumber the other model's.
 - **Hostname** `mi-air-purifier` (`CONFIG_LWIP_LOCAL_HOSTNAME`) via DHCP.
   No mDNS name: Matter uses CHIP's minimal mDNS (`CONFIG_USE_MINIMAL_MDNS=y`),
   and Espressif's mDNS component would compete for port 5353.
-- **Pairing code is per-build**: discriminator, passcode and verifier in
-  `chip_project_config.h`. Change passcode and verifier together
-  (`python3 tools/spake2p_verifier.py <passcode>`).
+- **Pairing code and name are per unit, in menuconfig** (*Air purifier*:
+  `CONFIG_PURIFIER_DEVICE_NAME`, `CONFIG_PURIFIER_SETUP_DISCRIMINATOR`,
+  `CONFIG_PURIFIER_SETUP_PASSCODE`). `commissionable_data.cpp` is the
+  Matter `CommissionableDataProvider` (selected by
+  `CONFIG_CUSTOM_COMMISSIONABLE_DATA_PROVIDER=y`, installed before
+  `esp_matter::start()`); it derives the SPAKE2+ verifier from the passcode
+  with the SDK's test salt and 1000 iterations on first use. Invalid values
+  fail the build (`static_assert` on the constexpr checks in
+  `device_identity.h`). `chip_project_config.h` no longer holds pairing
+  values. Defaults (2250 / 79983961) equal the old committed code, so
+  existing pairings and the CI image's code are unchanged.
 - **Never commit stock flash dumps** (`stock_*` is git-ignored): they contain
   device keys and Wi-Fi credentials. `dump/README.md` records what the 3H's
   dump showed (stock partition table, chip facts); only that file is

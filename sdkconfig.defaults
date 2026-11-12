@@ -54,6 +54,8 @@ CONFIG_MBEDTLS_HKDF_C=y
 
 # Matter identity. Test vendor ID; product ID distinct from the plant monitor.
 CONFIG_CHIP_PROJECT_CONFIG="main/chip_project_config.h"
+# Pairing code from menuconfig (Air purifier menu), see main/commissionable_data.cpp.
+CONFIG_CUSTOM_COMMISSIONABLE_DATA_PROVIDER=y
 CONFIG_DEVICE_VENDOR_ID=0xFFF2
 CONFIG_DEVICE_PRODUCT_ID=0x8003
 CONFIG_DEFAULT_DEVICE_HARDWARE_VERSION=1
