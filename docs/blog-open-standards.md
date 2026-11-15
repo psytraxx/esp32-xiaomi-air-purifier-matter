@@ -124,3 +124,14 @@ open-source [ESP-IDF](https://github.com/espressif/esp-idf) and
 > me a message.
 >
 > #Matter #OpenStandards #HomeAssistant #ESP32 #RightToRepair #SmartHome
+
+## Very short version for the feed
+
+> My Xiaomi air purifiers no longer need Xiaomi's app, account or cloud. 🌬️
+>
+> I gave the Wi-Fi chip inside them new firmware. They now speak **Matter**,
+> the open smart-home standard, and run entirely on my own network.
+>
+> Good hardware shouldn't depend on someone else's servers. Code available on request.
+>
+> #Matter #OpenStandards #HomeAssistant #SmartHome
