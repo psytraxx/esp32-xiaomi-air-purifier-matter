@@ -47,7 +47,7 @@ So the plan wrote itself: **leave the purifier's controller untouched, and
 replace the Wi-Fi module's firmware** with one that speaks Matter on one
 side and Xiaomi's serial protocol on the other.
 
-The result is an open-source firmware (MIT) built on ESP-IDF and esp-matter.
+The result is a new firmware built on ESP-IDF and esp-matter.
 It now runs on both a **Mi Air Purifier 3H and a 3C**, from a single image.
 At boot it asks the purifier's controller for a property only one of the two
 models has, and sets itself up for that model. In Home Assistant the
@@ -91,8 +91,8 @@ the filter don't care where the commands come from.
 Open standards move the decision about how long a device stays useful back
 to the person who bought it.
 
-👉 Code, flashing guide and backup instructions:
-**github.com/psytraxx/esp32-xiaomi-air-purifier-matter**
+👉 Want to try it on your own purifier? The code, flashing guide and backup
+instructions are available on request: send me a message.
 
 *Credits: [sourcediver.org](https://sourcediver.org/posts/240218_unclouded_purifier/),
 [Flamingo-tech](https://github.com/Flamingo-tech/xiaomi-air-purifier-reverse-engineering),
@@ -120,7 +120,7 @@ open-source [ESP-IDF](https://github.com/espressif/esp-idf) and
 > Good hardware shouldn't stop being useful because a vendor's servers go
 > away. Open standards put that decision back with the owner.
 >
-> Open source (MIT), running on a Mi Air Purifier 3H and 3C. Full story 👇
-> github.com/psytraxx/esp32-xiaomi-air-purifier-matter
+> Running on a Mi Air Purifier 3H and 3C. Code available on request: send
+> me a message.
 >
-> #Matter #OpenStandards #HomeAssistant #ESP32 #RightToRepair #SmartHome #OpenSource
+> #Matter #OpenStandards #HomeAssistant #ESP32 #RightToRepair #SmartHome
