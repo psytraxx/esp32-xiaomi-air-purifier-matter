@@ -2,6 +2,13 @@
 
 Entries are grouped by date, newest first.
 
+## 2026-11-15
+
+### Added
+- A short blog post (in the docs folder) on why this project exists: an open standard instead of a vendor app and cloud. Written for LinkedIn, with a short feed version at the end.
+
+---
+
 ## 2026-11-12
 
 ### Added
