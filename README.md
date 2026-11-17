@@ -652,20 +652,44 @@ use their code:
 
 Stack:
 
-- [psytraxx/esp32-homecontrol-matter](https://github.com/psytraxx/esp32-homecontrol-matter):
-  sister project on the same ESP-IDF / esp_matter stack
-- [psytraxx/gravity-cube-espidf](https://github.com/psytraxx/gravity-cube-espidf):
-  model for the updates over Wi-Fi and the FRITZ!Box WPA3 fix
+- esp32-homecontrol-matter (a plant-watering monitor, not public): sister
+  project on the same ESP-IDF / esp_matter stack
+- gravity-cube-espidf (not public): model for the updates over Wi-Fi and
+  the FRITZ!Box WPA3 fix
 - [esp-matter](https://github.com/espressif/esp-matter),
   [ESP-IDF](https://github.com/espressif/esp-idf),
   [esptool](https://github.com/espressif/esptool)
 
 ## Disclaimer
 
-This is an unofficial project, not affiliated with or endorsed by Xiaomi,
-Zhimi, Espressif or the Connectivity Standards Alliance. Opening the device
-voids its warranty and exposes mains-powered parts, and flashing can brick
-the Wi-Fi module. You do this at your own risk.
+This is an independent, non-commercial hobby project. It is **not
+affiliated with, endorsed by or supported by** Xiaomi, Zhimi, Espressif or
+the Connectivity Standards Alliance.
+
+- **Trademarks.** Xiaomi, Mi, Mi Home and product names such as "Mi Air
+  Purifier 3H" are trademarks of their owners. They are used here only to
+  say which devices this firmware works with.
+- **No vendor code.** This repository contains no Xiaomi firmware, code or
+  files. The firmware is written from scratch to work with the purifier's
+  documented serial protocol, for interoperability with open smart-home
+  standards. Never share flash dumps: they contain your device's keys and
+  your Wi-Fi password.
+- **Matter.** "Matter" is a trademark of the Connectivity Standards
+  Alliance. This firmware is **not Matter certified**. It uses a test
+  vendor ID intended for development and personal use.
+- **Your device, your risk.** Opening the purifier voids its warranty and
+  exposes parts connected to mains power. Flashing can make the Wi-Fi module
+  unusable, and the device will no longer work with the Mi Home app or
+  Xiaomi's cloud. Back up the original firmware first (see
+  [Backup, flashing and restore](#backup-flashing-and-restore)). The
+  software is provided "as is", without warranty of any kind (see
+  [LICENSE](LICENSE)).
+- **Not for resale.** Don't sell devices running this firmware or offer
+  flashing as a service: a commercial product needs its own certification
+  and safety approvals.
+
+If you represent a rights holder and have a concern about this project,
+please open an issue or get in touch; it will be addressed promptly.
 
 ## License
 

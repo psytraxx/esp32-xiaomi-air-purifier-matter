@@ -2,6 +2,14 @@
 
 Entries are grouped by date, newest first.
 
+## 2026-11-17
+
+### Changed
+- The disclaimer now spells out that this is an independent hobby project: Xiaomi and Matter are named only to say what the firmware works with, no Xiaomi code is included, the firmware isn't Matter certified, and devices running it shouldn't be sold.
+- The blog post links to the code again, ready for the repository to go public, and the README no longer links to two related projects that aren't public.
+
+---
+
 ## 2026-11-15
 
 ### Added
